@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { format, parseISO } from 'date-fns'
-import { Plus, ArrowLeft, Gauge } from 'lucide-react'
+import { Plus, ArrowLeft, Gauge, Pencil, Upload } from 'lucide-react'
 
 // ---- Data hooks ----
 
@@ -183,21 +183,45 @@ function ServiceHistoryTab({ vehicleId }) {
 
 function PendingWorkTab({ vehicleId }) {
   const { data, isLoading } = usePendingWork(vehicleId)
+  const qc = useQueryClient()
+  const navigate = useNavigate()
+
   const prioColors = {
     high: 'badge-red', medium: 'badge-amber', low: 'badge-slate',
     watch: 'badge-blue', conditional: 'badge-slate',
   }
   const statusColors = {
     pending: 'badge-amber', in_progress: 'badge-blue',
-    watch: 'badge-blue', conditional: 'badge-slate',
+    deferred: 'badge-slate', watch: 'badge-blue', conditional: 'badge-slate',
   }
 
-  if (isLoading) return <Loading />
-  if (!data?.length) return <Empty message="No open pending work items." />
+  const markComplete = useMutation({
+    mutationFn: async (id) => {
+      const { error } = await supabase
+        .from('pending_work').update({ status: 'completed' }).eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pending_work', vehicleId] })
+      qc.invalidateQueries({ queryKey: ['pending_work_open'] })
+    },
+  })
 
   return (
     <div className="space-y-3">
-      {data.map(item => (
+      <div className="flex justify-end">
+        <Link
+          to={`/vehicles/${vehicleId}/add-pending`}
+          className="inline-flex items-center gap-1.5 btn-primary text-xs py-1.5 px-3"
+        >
+          <Plus size={13} /> Add Item
+        </Link>
+      </div>
+
+      {isLoading && <Loading />}
+      {!isLoading && !data?.length && <Empty message="No open pending work items." />}
+
+      {(data || []).map(item => (
         <div key={item.id} className="card">
           <div className="flex items-start justify-between gap-2 mb-2">
             <p className="font-semibold text-slate-800 text-sm">{item.title}</p>
@@ -209,12 +233,31 @@ function PendingWorkTab({ vehicleId }) {
           {item.description && (
             <p className="text-xs text-slate-600 leading-relaxed mb-2">{item.description}</p>
           )}
-          <div className="flex items-center gap-4 text-xs text-slate-500">
-            {item.estimated_cost && <span>Est: {item.estimated_cost}</span>}
-            {item.identified_by && <span>Source: {item.identified_by}</span>}
-            {item.identified_date && (
-              <span>ID'd: {format(parseISO(item.identified_date), 'MMM yyyy')}</span>
-            )}
+          <div className="flex items-center justify-between mt-1">
+            <div className="flex items-center gap-4 text-xs text-slate-500">
+              {item.estimated_cost && <span>Est: {item.estimated_cost}</span>}
+              {item.identified_by && <span>Source: {item.identified_by}</span>}
+              {item.identified_date && (
+                <span>ID'd: {format(parseISO(item.identified_date), 'MMM yyyy')}</span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => navigate(`/vehicles/${vehicleId}/add-pending?edit=${item.id}`)}
+                className="text-xs text-slate-400 hover:text-primary-600 flex items-center gap-0.5"
+              >
+                <Pencil size={11} /> Edit
+              </button>
+              {item.status !== 'completed' && (
+                <button
+                  onClick={() => markComplete.mutate(item.id)}
+                  disabled={markComplete.isPending}
+                  className="text-xs text-green-600 hover:text-green-800 font-medium"
+                >
+                  ✓ Done
+                </button>
+              )}
+            </div>
           </div>
         </div>
       ))}
@@ -224,6 +267,8 @@ function PendingWorkTab({ vehicleId }) {
 
 function MaintenanceTab({ vehicleId }) {
   const { data, isLoading } = useMaintenance(vehicleId)
+  const navigate = useNavigate()
+
   const statusColors = {
     confirmed: 'badge-green', estimated: 'badge-blue',
     assumed: 'badge-amber', unknown: 'badge-red',
@@ -232,45 +277,68 @@ function MaintenanceTab({ vehicleId }) {
     critical: 'badge-red', high: 'badge-amber', medium: 'badge-slate', low: 'badge-slate',
   }
 
-  if (isLoading) return <Loading />
-  if (!data?.length) return <Empty message="No maintenance schedule set up yet." />
-
   return (
-    <div className="overflow-x-auto -mx-4">
-      <table className="data-table min-w-full">
-        <thead>
-          <tr>
-            <th>Item</th>
-            <th>Interval</th>
-            <th>Last Done</th>
-            <th>Confidence</th>
-            <th>Priority</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.map(row => (
-            <tr key={row.id}>
-              <td className="font-medium text-slate-800">{row.service_item}</td>
-              <td className="text-slate-500">
-                {row.interval_months ? `${row.interval_months} mo` : ''}
-                {row.interval_months && row.interval_miles ? ' / ' : ''}
-                {row.interval_miles ? `${row.interval_miles.toLocaleString()} mi` : ''}
-              </td>
-              <td className="text-slate-600">
-                {row.last_done_date
-                  ? format(parseISO(row.last_done_date), 'MMM yyyy')
-                  : row.baseline_date
-                  ? <span className="italic text-slate-400">{format(parseISO(row.baseline_date), 'MMM yyyy')} *</span>
-                  : <span className="text-slate-400">—</span>
-                }
-              </td>
-              <td><span className={statusColors[row.knowledge_status] || 'badge-slate'}>{row.knowledge_status}</span></td>
-              <td><span className={prioColors[row.priority] || 'badge-slate'}>{row.priority}</span></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <p className="text-xs text-slate-400 px-4 py-2">* Baseline estimate — not confirmed from service record</p>
+    <div className="space-y-2">
+      <div className="flex justify-end">
+        <Link
+          to={`/vehicles/${vehicleId}/add-maintenance`}
+          className="inline-flex items-center gap-1.5 btn-primary text-xs py-1.5 px-3"
+        >
+          <Plus size={13} /> Add Item
+        </Link>
+      </div>
+
+      {isLoading && <Loading />}
+      {!isLoading && !data?.length && <Empty message="No maintenance schedule set up yet." />}
+
+      {!!data?.length && (
+        <div className="overflow-x-auto -mx-4">
+          <table className="data-table min-w-full">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Interval</th>
+                <th>Last Done</th>
+                <th>Conf.</th>
+                <th>Pri.</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map(row => (
+                <tr key={row.id}>
+                  <td className="font-medium text-slate-800">{row.service_item}</td>
+                  <td className="text-slate-500 text-xs">
+                    {row.interval_months ? `${row.interval_months} mo` : ''}
+                    {row.interval_months && row.interval_miles ? ' / ' : ''}
+                    {row.interval_miles ? `${row.interval_miles.toLocaleString()} mi` : ''}
+                  </td>
+                  <td className="text-slate-600 text-xs">
+                    {row.last_done_date
+                      ? format(parseISO(row.last_done_date), 'MMM yyyy')
+                      : row.baseline_date
+                      ? <span className="italic text-slate-400">{format(parseISO(row.baseline_date), 'MMM yyyy')} *</span>
+                      : <span className="text-slate-400">—</span>
+                    }
+                  </td>
+                  <td><span className={statusColors[row.knowledge_status] || 'badge-slate'} style={{fontSize:'10px'}}>{row.knowledge_status}</span></td>
+                  <td><span className={prioColors[row.priority] || 'badge-slate'} style={{fontSize:'10px'}}>{row.priority}</span></td>
+                  <td>
+                    <button
+                      onClick={() => navigate(`/vehicles/${vehicleId}/add-maintenance?edit=${row.id}`)}
+                      className="text-slate-400 hover:text-primary-600 p-1"
+                      title="Edit"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="text-xs text-slate-400 px-4 py-2">* Baseline estimate — not confirmed from service record</p>
+        </div>
+      )}
     </div>
   )
 }
@@ -427,9 +495,18 @@ const TABS = [
 ]
 
 export default function VehicleDetail() {
-  const { id }       = useParams()
-  const navigate     = useNavigate()
-  const [tab, setTab] = useState('service')
+  const { id }             = useParams()
+  const navigate           = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // Allow ?tab=pending etc. to deep-link into a specific tab
+  const tabParam = searchParams.get('tab')
+  const [tab, setTab] = useState(tabParam || 'service')
+
+  function switchTab(t) {
+    setTab(t)
+    setSearchParams({ tab: t }, { replace: true })
+  }
 
   const { data: vehicle, isLoading } = useVehicle(id)
   const { data: mileageData }        = useCurrentMileage(id)
@@ -494,14 +571,28 @@ export default function VehicleDetail() {
           )}
         </div>
 
-        {/* Add service button */}
-        <div className="mb-3">
+        {/* Action buttons */}
+        <div className="flex flex-wrap gap-2 mb-3">
           <Link
             to={`/vehicles/${id}/add-service`}
-            className="inline-flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-white
-                       font-semibold text-sm px-4 py-2 rounded-lg transition-colors"
+            className="inline-flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-white
+                       font-semibold text-sm px-3 py-1.5 rounded-lg transition-colors"
           >
-            <Plus size={15} /> Add Service Record
+            <Plus size={14} /> Add Service
+          </Link>
+          <Link
+            to={`/vehicles/${id}/upload-document`}
+            className="inline-flex items-center gap-1.5 bg-primary-700 hover:bg-primary-600 text-white
+                       font-semibold text-sm px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <Upload size={14} /> Upload Doc
+          </Link>
+          <Link
+            to={`/vehicles/${id}/edit`}
+            className="inline-flex items-center gap-1.5 bg-primary-800 hover:bg-primary-700 text-primary-200
+                       font-semibold text-sm px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <Pencil size={13} /> Edit
           </Link>
         </div>
 
@@ -510,7 +601,7 @@ export default function VehicleDetail() {
           {TABS.map(t => (
             <button
               key={t.id}
-              onClick={() => setTab(t.id)}
+              onClick={() => switchTab(t.id)}
               className={`tab-btn ${tab === t.id ? 'active' : ''}`}
             >
               {t.label}

@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
-import { Car } from 'lucide-react'
+import { Car, Plus } from 'lucide-react'
 
 export default function VehicleList() {
   const { data: vehicles, isLoading } = useQuery({
@@ -23,11 +23,22 @@ export default function VehicleList() {
   return (
     <div>
       <div className="bg-primary-900 text-white px-5 py-5">
-        <h1 className="text-xl font-bold">Vehicles</h1>
-        <p className="text-primary-300 text-sm mt-0.5">
-          {(vehicles || []).filter(v => v.status === 'active').length} active ·{' '}
-          {(vehicles || []).filter(v => v.status === 'project').length} projects
-        </p>
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-xl font-bold">Vehicles</h1>
+            <p className="text-primary-300 text-sm mt-0.5">
+              {(vehicles || []).filter(v => v.status === 'active').length} active ·{' '}
+              {(vehicles || []).filter(v => v.status === 'project').length} projects
+            </p>
+          </div>
+          <Link
+            to="/vehicles/new"
+            className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-white
+                       font-semibold text-sm px-3 py-1.5 rounded-lg transition-colors flex-shrink-0"
+          >
+            <Plus size={15} /> Add Vehicle
+          </Link>
+        </div>
       </div>
 
       <div className="p-4 max-w-2xl mx-auto">

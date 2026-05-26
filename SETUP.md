@@ -169,11 +169,35 @@ src/
 
 ---
 
-## Next steps (planned)
+## What's been built
 
-- [ ] Add/Edit vehicle form
-- [ ] Add pending work item form
-- [ ] Maintenance schedule entry form
-- [ ] Document upload from phone camera
-- [ ] Automated Gmail scanning (scheduled task)
-- [ ] Data migration from Excel tracker to Supabase
+### ✅ Read views
+- Dashboard with inspection alerts, high-priority pending work, recent service
+- Vehicle list + per-vehicle detail with 7 tabs
+- Fleet-wide maintenance schedule, pending work, documents pages
+
+### ✅ Write forms
+- **Add/Edit Vehicle** — Vehicles page → "Add Vehicle" button, or vehicle detail → "Edit"
+- **Add Service Record** — vehicle detail header → "Add Service"
+- **Add/Edit Pending Work** — vehicle detail Pending Work tab → "Add Item" / "Edit"
+  - Quick "✓ Done" button marks items complete without navigating away
+- **Add/Edit Maintenance Item** — vehicle detail Maintenance tab → "Add Item" / edit pencil
+- **Upload Document** — vehicle detail header → "Upload Doc"
+  - On mobile: shows "Take Photo / Scan" button that opens camera directly
+  - Uploads to Supabase Storage, linked to the vehicle record
+
+### 📧 Gmail Scanner (`gmail_vehicle_scanner.py`, in Vehicles folder)
+Standalone Python script that scans Gmail for vehicle-related emails and
+extracts structured data using Claude AI. Produces a CSV for review.
+
+Setup:
+1. `pip install google-auth google-auth-oauthlib google-api-python-client anthropic --break-system-packages`
+2. Google OAuth credentials (Desktop App) from https://console.cloud.google.com → download as `gmail_credentials.json`
+3. `set ANTHROPIC_API_KEY=sk-ant-...`
+4. `python gmail_vehicle_scanner.py` — browser opens for Google auth on first run
+5. Review CSV output, enter new records into the app
+
+## Future work
+- Supabase Edge Function to auto-run Gmail scanner on a schedule
+- Bulk import from Gmail scanner CSV
+- Push notifications for upcoming inspections / maintenance due

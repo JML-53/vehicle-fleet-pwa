@@ -5,7 +5,11 @@ import Login from '@/pages/Login'
 import Dashboard from '@/pages/Dashboard'
 import VehicleList from '@/pages/VehicleList'
 import VehicleDetail from '@/pages/VehicleDetail'
+import AddEditVehicle from '@/pages/AddEditVehicle'
 import AddServiceRecord from '@/pages/AddServiceRecord'
+import AddPendingWork from '@/pages/AddPendingWork'
+import AddMaintenanceItem from '@/pages/AddMaintenanceItem'
+import UploadDocument from '@/pages/UploadDocument'
 import PendingWorkPage from '@/pages/PendingWorkPage'
 import MaintenanceSchedulePage from '@/pages/MaintenanceSchedulePage'
 import DocumentsPage from '@/pages/DocumentsPage'
@@ -38,12 +42,23 @@ export default function App() {
         }
       >
         <Route index element={<Dashboard />} />
+
+        {/* Vehicles */}
         <Route path="vehicles" element={<VehicleList />} />
+        <Route path="vehicles/new" element={<AddEditVehicle />} />
         <Route path="vehicles/:id" element={<VehicleDetail />} />
-        <Route path="vehicles/:id/add-service" element={<AddServiceRecord />} />
-        <Route path="pending" element={<PendingWorkPage />} />
+        <Route path="vehicles/:id/edit" element={<AddEditVehicle />} />
+
+        {/* Per-vehicle forms */}
+        <Route path="vehicles/:id/add-service"     element={<AddServiceRecord />} />
+        <Route path="vehicles/:id/add-pending"      element={<AddPendingWork />} />
+        <Route path="vehicles/:id/add-maintenance"  element={<AddMaintenanceItem />} />
+        <Route path="vehicles/:id/upload-document"  element={<UploadDocument />} />
+
+        {/* Fleet-wide views */}
+        <Route path="pending"     element={<PendingWorkPage />} />
         <Route path="maintenance" element={<MaintenanceSchedulePage />} />
-        <Route path="documents" element={<DocumentsPage />} />
+        <Route path="documents"   element={<DocumentsPage />} />
       </Route>
 
       {/* Catch-all */}
