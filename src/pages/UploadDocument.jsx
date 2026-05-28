@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { ArrowLeft, Camera, FileText, X } from 'lucide-react'
 
@@ -16,11 +16,29 @@ const DOC_TYPES = [
 ]
 
 export default function UploadDocument() {
-  const { id: vehicleId } = useParams()
+  const { id: vehicleIdParam } = useParams()
   const navigate = useNavigate()
   const qc = useQueryClient()
   const fileInputRef = useRef(null)
   const cameraInputRef = useRef(null)
+
+  // When accessed from the fleet documents page (no vehicleId in route),
+  // let the user pick a vehicle from a dropdown.
+  const [pickedVehicleId, setPickedVehicleId] = useState('')
+  const vehicleId = vehicleIdParam || pickedVehicleId
+
+  const { data: vehicles } = useQuery({
+    queryKey: ['vehicles_list'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('vehicles')
+        .select('id, name, year, make, model')
+        .order('name')
+      if (error) throw error
+      return data
+    },
+    enabled: !vehicleIdParam, // only fetch when we need the picker
+  })
 
   const [selectedFile, setSelectedFile] = useState(null)
   const [preview, setPreview] = useState(null)
@@ -95,7 +113,8 @@ export default function UploadDocument() {
       setUploadProgress(null)
       qc.invalidateQueries({ queryKey: ['documents_all'] })
       qc.invalidateQueries({ queryKey: ['documents', vehicleId] })
-      navigate(-1)
+      // If we came from the fleet docs page (no vehicleId param), go back there
+      navigate(vehicleIdParam ? -1 : '/documents')
     },
     onError: () => setUploadProgress(null),
   })
@@ -124,6 +143,25 @@ export default function UploadDocument() {
         {mutation.isError && (
           <div className="bg-red-50 border border-red-200 text-red-700 text-sm p-3 rounded-lg">
             {mutation.error?.message || 'Something went wrong.'}
+          </div>
+        )}
+
+        {/* Vehicle picker — only shown when accessed from the fleet documents page */}
+        {!vehicleIdParam && (
+          <div className="card space-y-2">
+            <h2 className="card-header">Vehicle</h2>
+            <select
+              value={pickedVehicleId}
+              onChange={e => setPickedVehicleId(e.target.value)}
+              className="field-select"
+            >
+              <option value="">— Select a vehicle —</option>
+              {(vehicles || []).map(v => (
+                <option key={v.id} value={v.id}>
+                  {v.name || `${v.year} ${v.make} ${v.model}`}
+                </option>
+              ))}
+            </select>
           </div>
         )}
 
@@ -264,7 +302,7 @@ export default function UploadDocument() {
         <div className="flex gap-3 pt-2">
           <button
             type="submit"
-            disabled={mutation.isPending || !selectedFile}
+            disabled={mutation.isPending || !selectedFile || !vehicleId}
             className="btn-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {mutation.isPending ? 'Uploading…' : 'Upload Document'}

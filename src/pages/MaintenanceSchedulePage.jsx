@@ -1,9 +1,37 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { format, parseISO, addMonths, isBefore, addDays } from 'date-fns'
 
+const FILTERS = [
+  { key: 'all',         label: 'All' },
+  { key: 'oil',         label: 'Oil' },
+  { key: 'tires',       label: 'Tires' },
+  { key: 'brakes',      label: 'Brakes' },
+  { key: 'inspection',  label: 'Inspection' },
+  { key: 'registration',label: 'Registration' },
+  { key: 'electrical',  label: 'Electrical' },
+  { key: 'other',       label: 'Other' },
+]
+
+function rowMatchesFilter(row, filter) {
+  if (filter === 'all') return true
+  const text = (row.service_item || '').toLowerCase()
+  if (filter === 'oil')          return text.includes('oil') || text.includes('filter')
+  if (filter === 'tires')        return text.includes('tire') || text.includes('rotation') || text.includes('wheel')
+  if (filter === 'brakes')       return text.includes('brake') || text.includes('rotor') || text.includes('caliper') || text.includes('pad')
+  if (filter === 'inspection')   return text.includes('inspect') || text.includes('emission') || text.includes('safety')
+  if (filter === 'registration') return text.includes('registr') || text.includes('tag') || text.includes('dmv')
+  if (filter === 'electrical')   return text.includes('batter') || text.includes('spark') || text.includes('electr') || text.includes('alternator') || text.includes('fuse')
+  // 'other' = anything that didn't match the named categories
+  const named = ['oil','filter','tire','rotation','wheel','brake','rotor','caliper','pad','inspect','emission','safety','registr','tag','dmv','batter','spark','electr','alternator','fuse']
+  return !named.some(kw => text.includes(kw))
+}
+
 export default function MaintenanceSchedulePage() {
+  const [filter, setFilter] = useState('all')
+
   const { data, isLoading } = useQuery({
     queryKey: ['maintenance_due_soon_all'],
     queryFn: async () => {
@@ -37,7 +65,9 @@ export default function MaintenanceSchedulePage() {
     assumed: 'badge-amber', unknown: 'badge-red',
   }
 
-  const grouped = (data || []).reduce((acc, row) => {
+  const filtered = (data || []).filter(row => rowMatchesFilter(row, filter))
+
+  const grouped = filtered.reduce((acc, row) => {
     const key = row.vehicle_name
     if (!acc[key]) acc[key] = { vehicleId: row.vehicle_id, rows: [] }
     acc[key].rows.push(row)
@@ -51,6 +81,21 @@ export default function MaintenanceSchedulePage() {
         <p className="text-primary-300 text-sm mt-0.5">
           All vehicles · items marked with confidence level
         </p>
+        <div className="flex flex-wrap gap-2 mt-3">
+          {FILTERS.map(f => (
+            <button
+              key={f.key}
+              onClick={() => setFilter(f.key)}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                filter === f.key
+                  ? 'bg-white text-primary-900'
+                  : 'bg-primary-800 text-primary-200 hover:bg-primary-700'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="p-4 space-y-6 max-w-3xl mx-auto">

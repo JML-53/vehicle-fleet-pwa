@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
@@ -35,11 +35,31 @@ const useServiceHistory = id => useQuery({
     const { data, error } = await supabase
       .from('service_records')
       .select(`
-        *, service_visits(visit_date, work_order, invoice_number, technician, total_cost,
-          shops(name, phone))
+        *,
+        service_visits(visit_date, work_order, invoice_number, technician, total_cost, shops(name, phone)),
+        parts(id, part_name, part_number, manufacturer, vendor, order_number, quantity, unit_cost, total_cost)
       `)
       .eq('vehicle_id', id)
       .order('service_date', { ascending: false })
+    if (error) throw error
+    return data
+  },
+  enabled: !!id,
+})
+
+const useServiceVisits = id => useQuery({
+  queryKey: ['service_visits', id],
+  queryFn: async () => {
+    const { data, error } = await supabase
+      .from('service_visits')
+      .select(`
+        *,
+        shops(name, phone),
+        service_records(id, title, category, description, labor_cost, parts_cost, total_cost, notes,
+          parts(id, part_name, part_number, manufacturer, vendor, quantity, unit_cost, total_cost))
+      `)
+      .eq('vehicle_id', id)
+      .order('visit_date', { ascending: false })
     if (error) throw error
     return data
   },
@@ -118,6 +138,18 @@ const useSpecs = id => useQuery({
   enabled: !!id,
 })
 
+const useRegistrations = id => useQuery({
+  queryKey: ['registrations', id],
+  queryFn: async () => {
+    const { data, error } = await supabase
+      .from('registrations').select('*').eq('vehicle_id', id)
+      .order('expiry_date', { ascending: false })
+    if (error) throw error
+    return data
+  },
+  enabled: !!id,
+})
+
 const useDiagnosticCodes = id => useQuery({
   queryKey: ['diagnostic_codes', id],
   queryFn: async () => {
@@ -134,13 +166,43 @@ const useDiagnosticCodes = id => useQuery({
 
 // ---- Tab content components ----
 
+const CAT_COLORS = {
+  oil_change: 'badge-green', brakes: 'badge-amber', tires: 'badge-blue',
+  diagnostic: 'badge-amber', ac_hvac: 'badge-blue', engine: 'badge-red',
+  suspension: 'badge-amber', modification: 'badge-blue', fuel_system: 'badge-blue',
+  inspection: 'badge-green', cooling: 'badge-blue', electrical: 'badge-amber',
+  transmission: 'badge-blue',
+}
+
+function PartsTable({ parts }) {
+  if (!parts?.length) return null
+  return (
+    <div className="mt-2 bg-slate-50 rounded-lg overflow-hidden border border-slate-100">
+      <p className="text-xs font-semibold text-slate-500 px-3 pt-2 pb-1">Parts</p>
+      <table className="w-full text-xs">
+        <tbody>
+          {parts.map(p => (
+            <tr key={p.id} className="border-t border-slate-100">
+              <td className="px-3 py-1.5 text-slate-700 font-medium">
+                {p.part_name}
+                {p.part_number && <span className="text-slate-400 ml-1 font-mono">#{p.part_number}</span>}
+              </td>
+              <td className="px-3 py-1.5 text-slate-500">{p.manufacturer || ''}</td>
+              <td className="px-3 py-1.5 text-slate-500 text-right">
+                {p.quantity !== 1 ? `×${p.quantity} ` : ''}
+                {p.total_cost != null ? `$${Number(p.total_cost).toLocaleString()}` : ''}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 function ServiceHistoryTab({ vehicleId }) {
   const { data, isLoading } = useServiceHistory(vehicleId)
-  const catColors = {
-    oil_change: 'badge-green', brakes: 'badge-amber', tires: 'badge-blue',
-    diagnostic: 'badge-amber', ac_hvac: 'badge-blue', engine: 'badge-red',
-    suspension: 'badge-amber', modification: 'badge-blue', fuel_system: 'badge-blue',
-  }
+  const [expanded, setExpanded] = useState({})
 
   if (isLoading) return <Loading />
   if (!data?.length) return <Empty message="No service records yet." />
@@ -158,7 +220,7 @@ function ServiceHistoryTab({ vehicleId }) {
                 {r.service_visits?.work_order ? ` · WO ${r.service_visits.work_order}` : ''}
               </p>
             </div>
-            <span className={`${catColors[r.category] || 'badge-slate'} capitalize flex-shrink-0`}>
+            <span className={`${CAT_COLORS[r.category] || 'badge-slate'} capitalize flex-shrink-0`}>
               {r.category?.replace(/_/g, ' ')}
             </span>
           </div>
@@ -167,16 +229,105 @@ function ServiceHistoryTab({ vehicleId }) {
             <p className="text-xs text-slate-600 mb-2 leading-relaxed">{r.description}</p>
           )}
 
-          <div className="flex items-center gap-4 text-xs text-slate-500">
-            {r.total_cost != null && (
-              <span className="font-medium text-slate-700">
-                ${Number(r.total_cost).toLocaleString()}
-              </span>
+          <div className="flex items-center justify-between text-xs text-slate-500">
+            <div className="flex items-center gap-4">
+              {r.total_cost != null && (
+                <span className="font-medium text-slate-700">
+                  ${Number(r.total_cost).toLocaleString()}
+                </span>
+              )}
+              {r.notes && <span className="italic truncate max-w-[200px]">{r.notes}</span>}
+            </div>
+            {r.parts?.length > 0 && (
+              <button
+                onClick={() => setExpanded(p => ({ ...p, [r.id]: !p[r.id] }))}
+                className="text-primary-600 hover:text-primary-800 text-xs font-medium"
+              >
+                {expanded[r.id] ? '▲ Hide' : `▼ Parts (${r.parts.length})`}
+              </button>
             )}
-            {r.notes && <span className="italic truncate">{r.notes}</span>}
           </div>
+
+          {expanded[r.id] && <PartsTable parts={r.parts} />}
         </div>
       ))}
+    </div>
+  )
+}
+
+function ServiceVisitsTab({ vehicleId }) {
+  const { data, isLoading } = useServiceVisits(vehicleId)
+  const [expanded, setExpanded] = useState({})
+
+  if (isLoading) return <Loading />
+  if (!data?.length) return <Empty message="No service visits recorded." />
+
+  return (
+    <div className="space-y-3">
+      {data.map(visit => {
+        const isOpen = expanded[visit.id]
+        const records = visit.service_records || []
+        return (
+          <div key={visit.id} className="card">
+            {/* Visit header */}
+            <button
+              className="w-full text-left"
+              onClick={() => setExpanded(p => ({ ...p, [visit.id]: !p[visit.id] }))}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="font-semibold text-slate-800 text-sm">
+                    {visit.visit_date ? format(parseISO(visit.visit_date), 'MMM d, yyyy') : '—'}
+                    {visit.shops?.name ? ` — ${visit.shops.name}` : ''}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {records.length} service item{records.length !== 1 ? 's' : ''}
+                    {visit.work_order ? ` · WO ${visit.work_order}` : ''}
+                    {visit.invoice_number ? ` · Inv ${visit.invoice_number}` : ''}
+                    {visit.total_cost != null ? ` · $${Number(visit.total_cost).toLocaleString()}` : ''}
+                  </p>
+                </div>
+                <span className="text-slate-400 text-lg leading-none mt-0.5">
+                  {isOpen ? '▲' : '▼'}
+                </span>
+              </div>
+            </button>
+
+            {/* Expanded records */}
+            {isOpen && (
+              <div className="mt-3 space-y-3 border-t border-slate-100 pt-3">
+                {records.length === 0 && (
+                  <p className="text-xs text-slate-400">No line items linked to this visit.</p>
+                )}
+                {records.map(r => (
+                  <div key={r.id} className="bg-slate-50 rounded-lg p-3">
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <p className="text-sm font-medium text-slate-800">{r.title}</p>
+                      <span className={`${CAT_COLORS[r.category] || 'badge-slate'} capitalize flex-shrink-0`}>
+                        {r.category?.replace(/_/g, ' ')}
+                      </span>
+                    </div>
+                    {r.description && (
+                      <p className="text-xs text-slate-600 mb-1 leading-relaxed">{r.description}</p>
+                    )}
+                    <div className="flex gap-3 text-xs text-slate-500">
+                      {r.labor_cost != null && <span>Labor: ${Number(r.labor_cost).toLocaleString()}</span>}
+                      {r.parts_cost != null && <span>Parts: ${Number(r.parts_cost).toLocaleString()}</span>}
+                      {r.total_cost != null && (
+                        <span className="font-medium text-slate-700">Total: ${Number(r.total_cost).toLocaleString()}</span>
+                      )}
+                    </div>
+                    <PartsTable parts={r.parts} />
+                  </div>
+                ))}
+                {visit.notes && (
+                  <p className="text-xs text-slate-500 italic pt-1">{visit.notes}</p>
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -265,9 +416,36 @@ function PendingWorkTab({ vehicleId }) {
   )
 }
 
+const MAINT_FILTERS = [
+  { key: 'all',         label: 'All' },
+  { key: 'oil',         label: 'Oil' },
+  { key: 'tires',       label: 'Tires' },
+  { key: 'brakes',      label: 'Brakes' },
+  { key: 'inspection',  label: 'Inspection' },
+  { key: 'registration',label: 'Registration' },
+  { key: 'fluids',      label: 'Fluids' },
+  { key: 'electrical',  label: 'Electrical' },
+]
+
+function matchesFilter(item, filter) {
+  if (filter === 'all') return true
+  const t = (item.service_item || '').toLowerCase()
+  const n = (item.notes || '').toLowerCase()
+  const both = t + ' ' + n
+  if (filter === 'oil')          return both.includes('oil')
+  if (filter === 'tires')        return both.includes('tire') || both.includes('rotation')
+  if (filter === 'brakes')       return both.includes('brake') || both.includes('rotor') || both.includes('pad')
+  if (filter === 'inspection')   return both.includes('inspect') || both.includes('safety') || both.includes('emissions')
+  if (filter === 'registration') return both.includes('registr')
+  if (filter === 'fluids')       return both.includes('fluid') || both.includes('coolant') || both.includes('transmission') || both.includes('transfer case') || both.includes('differential')
+  if (filter === 'electrical')   return both.includes('battery') || both.includes('electric')
+  return true
+}
+
 function MaintenanceTab({ vehicleId }) {
   const { data, isLoading } = useMaintenance(vehicleId)
   const navigate = useNavigate()
+  const [filter, setFilter] = useState('all')
 
   const statusColors = {
     confirmed: 'badge-green', estimated: 'badge-blue',
@@ -277,21 +455,34 @@ function MaintenanceTab({ vehicleId }) {
     critical: 'badge-red', high: 'badge-amber', medium: 'badge-slate', low: 'badge-slate',
   }
 
+  const filtered = (data || []).filter(r => matchesFilter(r, filter))
+
   return (
     <div className="space-y-2">
-      <div className="flex justify-end">
-        <Link
-          to={`/vehicles/${vehicleId}/add-maintenance`}
-          className="inline-flex items-center gap-1.5 btn-primary text-xs py-1.5 px-3"
-        >
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex gap-1.5 flex-wrap">
+          {MAINT_FILTERS.map(f => (
+            <button key={f.key} onClick={() => setFilter(f.key)}
+              className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                filter === f.key
+                  ? 'bg-primary-700 text-white border-primary-700'
+                  : 'bg-white text-slate-600 border-slate-300 hover:border-primary-400'
+              }`}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <Link to={`/vehicles/${vehicleId}/add-maintenance`}
+          className="inline-flex items-center gap-1.5 btn-primary text-xs py-1.5 px-3">
           <Plus size={13} /> Add Item
         </Link>
       </div>
 
       {isLoading && <Loading />}
       {!isLoading && !data?.length && <Empty message="No maintenance schedule set up yet." />}
+      {!isLoading && data?.length > 0 && filtered.length === 0 && <Empty message="No items match this filter." />}
 
-      {!!data?.length && (
+      {!!filtered?.length && (
         <div className="overflow-x-auto -mx-4">
           <table className="data-table min-w-full">
             <thead>
@@ -305,7 +496,7 @@ function MaintenanceTab({ vehicleId }) {
               </tr>
             </thead>
             <tbody>
-              {data.map(row => (
+              {filtered.map(row => (
                 <tr key={row.id}>
                   <td className="font-medium text-slate-800">{row.service_item}</td>
                   <td className="text-slate-500 text-xs">
@@ -345,19 +536,27 @@ function MaintenanceTab({ vehicleId }) {
 
 function ModsTab({ vehicleId }) {
   const { data, isLoading } = useMods(vehicleId)
-
-  if (isLoading) return <Loading />
-  if (!data?.length) return <Empty message="No modifications recorded yet." />
+  const navigate = useNavigate()
 
   return (
     <div className="space-y-3">
-      {data.map(mod => (
+      <div className="flex justify-end">
+        <Link to={`/vehicles/${vehicleId}/add-mod`}
+          className="inline-flex items-center gap-1.5 btn-primary text-xs py-1.5 px-3">
+          <Plus size={13} /> Add Mod
+        </Link>
+      </div>
+      {isLoading && <Loading />}
+      {!isLoading && !data?.length && <Empty message="No modifications recorded yet." />}
+      {(data || []).map(mod => (
         <div key={mod.id} className="card">
           <div className="flex items-start justify-between gap-2 mb-1">
             <p className="font-semibold text-slate-800 text-sm">{mod.description}</p>
-            <span className="badge-blue capitalize flex-shrink-0">
-              {mod.category?.replace(/_/g, ' ')}
-            </span>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <span className="badge-blue capitalize">{mod.category?.replace(/_/g, ' ')}</span>
+              <button onClick={() => navigate(`/vehicles/${vehicleId}/add-mod?edit=${mod.id}`)}
+                className="text-slate-400 hover:text-primary-600 p-0.5"><Pencil size={12} /></button>
+            </div>
           </div>
           <div className="flex flex-wrap gap-3 text-xs text-slate-500 mt-1">
             {mod.manufacturer && <span>{mod.manufacturer}</span>}
@@ -377,24 +576,34 @@ function ModsTab({ vehicleId }) {
 
 function NotesTab({ vehicleId }) {
   const { data, isLoading } = useNotes(vehicleId)
+  const navigate = useNavigate()
   const catColors = {
     warning: 'badge-red', observation: 'badge-slate', tip: 'badge-green',
-    history: 'badge-blue', quirk: 'badge-amber',
+    history: 'badge-blue', quirk: 'badge-amber', other: 'badge-slate',
   }
-
-  if (isLoading) return <Loading />
-  if (!data?.length) return <Empty message="No notes yet." />
 
   return (
     <div className="space-y-3">
-      {data.map(note => (
+      <div className="flex justify-end">
+        <Link to={`/vehicles/${vehicleId}/add-note`}
+          className="inline-flex items-center gap-1.5 btn-primary text-xs py-1.5 px-3">
+          <Plus size={13} /> Add Note
+        </Link>
+      </div>
+      {isLoading && <Loading />}
+      {!isLoading && !data?.length && <Empty message="No notes yet." />}
+      {(data || []).map(note => (
         <div key={note.id} className={`card ${note.is_pinned ? 'border-l-4 border-l-amber-400' : ''}`}>
           <div className="flex items-start justify-between gap-2 mb-2">
             <span className={`${catColors[note.category] || 'badge-slate'} capitalize`}>{note.category}</span>
-            <span className="text-xs text-slate-400">
-              {note.note_date ? format(parseISO(note.note_date), 'MMM d, yyyy') : ''}
-              {note.created_by ? ` · ${note.created_by}` : ''}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-400">
+                {note.note_date ? format(parseISO(note.note_date), 'MMM d, yyyy') : ''}
+                {note.created_by ? ` · ${note.created_by}` : ''}
+              </span>
+              <button onClick={() => navigate(`/vehicles/${vehicleId}/add-note?edit=${note.id}`)}
+                className="text-slate-400 hover:text-primary-600 p-0.5"><Pencil size={12} /></button>
+            </div>
           </div>
           <p className="text-sm text-slate-700 leading-relaxed">{note.note_text}</p>
         </div>
@@ -405,11 +614,8 @@ function NotesTab({ vehicleId }) {
 
 function SpecsTab({ vehicleId }) {
   const { data, isLoading } = useSpecs(vehicleId)
+  const navigate = useNavigate()
 
-  if (isLoading) return <Loading />
-  if (!data?.length) return <Empty message="No specs recorded yet." />
-
-  // Group by category
   const grouped = (data || []).reduce((acc, spec) => {
     if (!acc[spec.spec_category]) acc[spec.spec_category] = []
     acc[spec.spec_category].push(spec)
@@ -418,6 +624,14 @@ function SpecsTab({ vehicleId }) {
 
   return (
     <div className="space-y-4">
+      <div className="flex justify-end">
+        <Link to={`/vehicles/${vehicleId}/add-spec`}
+          className="inline-flex items-center gap-1.5 btn-primary text-xs py-1.5 px-3">
+          <Plus size={13} /> Add Spec
+        </Link>
+      </div>
+      {isLoading && <Loading />}
+      {!isLoading && !data?.length && <Empty message="No specs recorded yet." />}
       {Object.entries(grouped).map(([category, specs]) => (
         <div key={category} className="card">
           <h3 className="card-header">{category}</h3>
@@ -427,8 +641,11 @@ function SpecsTab({ vehicleId }) {
                 <tr key={spec.id}>
                   <td className="text-slate-600 w-1/2">{spec.spec_name}</td>
                   <td className="font-medium text-slate-800">
-                    {spec.spec_value}
-                    {spec.units ? ` ${spec.units}` : ''}
+                    {spec.spec_value}{spec.units ? ` ${spec.units}` : ''}
+                  </td>
+                  <td className="w-8">
+                    <button onClick={() => navigate(`/vehicles/${vehicleId}/add-spec?edit=${spec.id}`)}
+                      className="text-slate-400 hover:text-primary-600 p-1"><Pencil size={12} /></button>
                   </td>
                 </tr>
               ))}
@@ -442,34 +659,92 @@ function SpecsTab({ vehicleId }) {
 
 function DiagnosticTab({ vehicleId }) {
   const { data, isLoading } = useDiagnosticCodes(vehicleId)
-
-  if (isLoading) return <Loading />
-  if (!data?.length) return <Empty message="No diagnostic codes recorded." />
+  const navigate = useNavigate()
 
   return (
-    <div className="overflow-x-auto -mx-4">
-      <table className="data-table min-w-full">
-        <thead>
-          <tr>
-            <th>Code</th>
-            <th>Description</th>
-            <th>Pulled</th>
-            <th>Cleared</th>
-            <th>Resolution</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.map(code => (
-            <tr key={code.id}>
-              <td><span className="font-mono font-semibold text-slate-800">{code.code}</span></td>
-              <td className="text-slate-600">{code.description || '—'}</td>
-              <td>{code.pulled_date ? format(parseISO(code.pulled_date), 'MMM d, yyyy') : '—'}</td>
-              <td>{code.cleared_date ? format(parseISO(code.cleared_date), 'MMM d, yyyy') : <span className="text-amber-600">Open</span>}</td>
-              <td className="text-slate-500 text-xs">{code.resolution || '—'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="space-y-2">
+      <div className="flex justify-end">
+        <Link to={`/vehicles/${vehicleId}/add-diagnostic`}
+          className="inline-flex items-center gap-1.5 btn-primary text-xs py-1.5 px-3">
+          <Plus size={13} /> Add Code
+        </Link>
+      </div>
+      {isLoading && <Loading />}
+      {!isLoading && !data?.length && <Empty message="No diagnostic codes recorded." />}
+      {!!data?.length && (
+        <div className="overflow-x-auto -mx-4">
+          <table className="data-table min-w-full">
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Description</th>
+                <th>Pulled</th>
+                <th>Cleared</th>
+                <th>Resolution</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map(code => (
+                <tr key={code.id}>
+                  <td><span className="font-mono font-semibold text-slate-800">{code.code}</span></td>
+                  <td className="text-slate-600">{code.description || '—'}</td>
+                  <td>{code.pulled_date ? format(parseISO(code.pulled_date), 'MMM d, yyyy') : '—'}</td>
+                  <td>{code.cleared_date ? format(parseISO(code.cleared_date), 'MMM d, yyyy') : <span className="text-amber-600">Open</span>}</td>
+                  <td className="text-slate-500 text-xs">{code.resolution || '—'}</td>
+                  <td>
+                    <button onClick={() => navigate(`/vehicles/${vehicleId}/add-diagnostic?edit=${code.id}`)}
+                      className="text-slate-400 hover:text-primary-600 p-1"><Pencil size={12} /></button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RegistrationsTab({ vehicleId }) {
+  const { data, isLoading } = useRegistrations(vehicleId)
+  const navigate = useNavigate()
+
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        <Link to={`/vehicles/${vehicleId}/add-registration`}
+          className="inline-flex items-center gap-1.5 btn-primary text-xs py-1.5 px-3">
+          <Plus size={13} /> Add Registration
+        </Link>
+      </div>
+      {isLoading && <Loading />}
+      {!isLoading && !data?.length && <Empty message="No registration records yet." />}
+      {(data || []).map(reg => (
+        <div key={reg.id} className="card">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-mono font-bold text-slate-800">{reg.plate}</span>
+                <span className="text-xs text-slate-500">{reg.state}</span>
+                {reg.is_current && <span className="badge-green">Current</span>}
+              </div>
+              <div className="flex gap-4 text-xs text-slate-500 mt-1">
+                {reg.registration_date && <span>Registered: {format(parseISO(reg.registration_date), 'MMM d, yyyy')}</span>}
+                {reg.expiry_date && (
+                  <span className={new Date(reg.expiry_date) < new Date() ? 'text-red-600 font-medium' : ''}>
+                    Expires: {format(parseISO(reg.expiry_date), 'MMM d, yyyy')}
+                    {new Date(reg.expiry_date) < new Date() ? ' ⚠️ EXPIRED' : ''}
+                  </span>
+                )}
+              </div>
+              {reg.notes && <p className="text-xs text-slate-500 mt-1 italic">{reg.notes}</p>}
+            </div>
+            <button onClick={() => navigate(`/vehicles/${vehicleId}/add-registration?edit=${reg.id}`)}
+              className="text-slate-400 hover:text-primary-600 p-1"><Pencil size={14} /></button>
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
@@ -486,12 +761,14 @@ function Empty({ message }) {
 
 const TABS = [
   { id: 'service',     label: 'Service History' },
+  { id: 'visits',      label: 'Visits' },
   { id: 'pending',     label: 'Pending Work' },
   { id: 'maintenance', label: 'Maintenance' },
   { id: 'mods',        label: 'Modifications' },
   { id: 'notes',       label: 'Notes' },
   { id: 'specs',       label: 'Specs' },
   { id: 'diagnostic',  label: 'Diagnostics' },
+  { id: 'registrations', label: 'Registration' },
 ]
 
 export default function VehicleDetail() {
@@ -612,13 +889,15 @@ export default function VehicleDetail() {
 
       {/* Tab content */}
       <div className="flex-1 p-4 max-w-3xl mx-auto w-full">
-        {tab === 'service'     && <ServiceHistoryTab vehicleId={id} />}
-        {tab === 'pending'     && <PendingWorkTab    vehicleId={id} />}
-        {tab === 'maintenance' && <MaintenanceTab    vehicleId={id} />}
-        {tab === 'mods'        && <ModsTab           vehicleId={id} />}
-        {tab === 'notes'       && <NotesTab          vehicleId={id} />}
-        {tab === 'specs'       && <SpecsTab          vehicleId={id} />}
-        {tab === 'diagnostic'  && <DiagnosticTab     vehicleId={id} />}
+        {tab === 'service'       && <ServiceHistoryTab vehicleId={id} />}
+        {tab === 'visits'        && <ServiceVisitsTab  vehicleId={id} />}
+        {tab === 'pending'       && <PendingWorkTab    vehicleId={id} />}
+        {tab === 'maintenance'   && <MaintenanceTab    vehicleId={id} />}
+        {tab === 'mods'          && <ModsTab           vehicleId={id} />}
+        {tab === 'notes'         && <NotesTab          vehicleId={id} />}
+        {tab === 'specs'         && <SpecsTab          vehicleId={id} />}
+        {tab === 'diagnostic'    && <DiagnosticTab     vehicleId={id} />}
+        {tab === 'registrations' && <RegistrationsTab  vehicleId={id} />}
       </div>
     </div>
   )

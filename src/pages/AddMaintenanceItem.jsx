@@ -44,10 +44,9 @@ export default function AddMaintenanceItem() {
         vehicle_id: vehicleId,
         interval_months:      values.interval_months      ? Number(values.interval_months)      : null,
         interval_miles:       values.interval_miles       ? Number(values.interval_miles)       : null,
-        last_service_mileage: values.last_service_mileage ? Number(values.last_service_mileage) : null,
+        last_done_mileage:    values.last_done_mileage ? Number(values.last_done_mileage) : null,
         last_done_date:       values.last_done_date || null,
         baseline_date:        values.baseline_date  || null,
-        next_due_date:        values.next_due_date  || null,
       }
       if (isEditing) {
         const { vehicle_id, ...update } = clean
@@ -158,7 +157,7 @@ export default function AddMaintenanceItem() {
               <div>
                 <label className="field-label">Last Done Mileage</label>
                 <input
-                  {...register('last_service_mileage')}
+                  {...register('last_done_mileage')}
                   type="number"
                   placeholder="89940"
                   className="field-input"
@@ -166,19 +165,6 @@ export default function AddMaintenanceItem() {
               </div>
             </div>
           )}
-        </div>
-
-        {/* Next due (optional override) */}
-        <div className="card space-y-3">
-          <h2 className="card-header">Next Due (optional override)</h2>
-          <p className="text-xs text-slate-400 -mt-1">
-            Leave blank — the database calculates this automatically from last service + interval.
-            Set manually only if you need to override the calculation.
-          </p>
-          <div>
-            <label className="field-label">Next Due Date</label>
-            <input {...register('next_due_date')} type="date" className="field-input" />
-          </div>
         </div>
 
         {/* Priority & notes */}

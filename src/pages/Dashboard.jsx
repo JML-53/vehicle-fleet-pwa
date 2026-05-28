@@ -57,8 +57,8 @@ function useRecentService() {
       const { data, error } = await supabase
         .from('service_records')
         .select(`
-          id, service_date, title, category, total_cost,
-          vehicles(name, year, make, model)
+          id, vehicle_id, service_date, title, category, total_cost,
+          vehicles(id, name, year, make, model)
         `)
         .order('service_date', { ascending: false })
         .limit(8)
@@ -150,7 +150,7 @@ function VehicleCard({ vehicle }) {
 function PendingItem({ item }) {
   return (
     <Link
-      to={`/vehicles/${item.vehicle_id}`}
+      to={`/vehicles/${item.vehicle_id}?tab=pending`}
       className="flex items-start gap-3 py-2.5 border-b border-slate-100 last:border-0
                  hover:bg-slate-50 -mx-4 px-4 transition-colors"
     >
@@ -181,7 +181,7 @@ function ServiceRow({ record }) {
 
   return (
     <Link
-      to={`/vehicles/${record.vehicles?.id || '#'}`}
+      to={`/vehicles/${record.vehicle_id}?tab=service`}
       className="flex items-start gap-3 py-2.5 border-b border-slate-100 last:border-0
                  hover:bg-slate-50 -mx-4 px-4 transition-colors"
     >

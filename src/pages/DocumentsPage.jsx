@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { format, parseISO } from 'date-fns'
-import { FileText, Download } from 'lucide-react'
+import { FileText, Download, Upload } from 'lucide-react'
 
 const DOC_ICONS = {
   receipt: '🧾', estimate: '📋', inspection_report: '✅',
@@ -29,10 +30,21 @@ export default function DocumentsPage() {
   return (
     <div>
       <div className="bg-primary-900 text-white px-5 py-5">
-        <h1 className="text-xl font-bold">Documents</h1>
-        <p className="text-primary-300 text-sm mt-0.5">
-          Receipts, estimates, inspection reports, photos
-        </p>
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-xl font-bold">Documents</h1>
+            <p className="text-primary-300 text-sm mt-0.5">
+              Receipts, estimates, inspection reports, photos
+            </p>
+          </div>
+          <Link
+            to="/documents/upload"
+            className="flex items-center gap-1.5 bg-primary-700 hover:bg-primary-600
+                       text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <Upload size={14} /> Upload
+          </Link>
+        </div>
       </div>
 
       <div className="p-4 space-y-3 max-w-2xl mx-auto">
@@ -40,7 +52,7 @@ export default function DocumentsPage() {
 
         {(data || []).length === 0 && !isLoading && (
           <p className="text-center text-slate-400 text-sm py-12">
-            No documents uploaded yet. Upload documents from a vehicle's service record.
+            No documents uploaded yet. Use the Upload button above to add receipts, photos, and reports.
           </p>
         )}
 

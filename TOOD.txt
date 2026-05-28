@@ -1,0 +1,16 @@
+- Need more options to edit existing data throughout the interface.  If I can see it, I should be able to edit it.
+- Dashboard: Clicking on record should take you to that record.
+	-- Example: Clicking on recent service Rover: "CEL Diagnostic - P0016" takes you to the Vehicle list.  It should open The Rover's Vehicle page, Service History Tab.
+- Service Visits is not exposed anywhere in the UI.  
+	-- Add tab in Vehicle interace.  Clicking a service visit should present a list of Service_record items from that service_visit.
+- Parts is not exposed anywhere in the UI.  It should be connected to a service_records entry and there should be a supporting UI for it.
+- Documents:
+	-- Link documents that were used as sources for original records in excel without creating new records
+	-- Add Link document to any field that might have one: Service Item.
+- Bugs:
+	-- Edit Maintenance Item: Tried to update Tire Rotation record for the 15 Suburban.  Set Confidence Level to Estimated.  Set date to 11/30/25.  Clicked Save Changes.  Got an error message: "Could not find the 'last_service_mileage' column of 'maintenance_schedule' in the schema cache"
+- Enable Document Upload with a control on Documents Page.  Should trigger parsing of the documents using the same approach as was used when scanning documents in the GoogleDrive Vehicles\Documents for tracking\ Folder
+- Track Vehicle Registrations and renewal status
+- Filter Maintenance Schedule by type of action: Registration, Inspection, Tires, Oil, ...
+- Create Admin interface to add/edit enums, manage users
+- Enable Column Sorting throughout U/I where appropriate
