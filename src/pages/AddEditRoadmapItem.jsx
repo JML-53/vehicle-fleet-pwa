@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useCallback } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -7,11 +7,12 @@ import { ArrowLeft } from 'lucide-react'
 
 const STATUS_OPTIONS = [
   { value: 'new',             label: '[N] New' },
+  { value: 'deferred',        label: '[D] Deferred' },
+  { value: 'not_implemented', label: '[X] Not Implemented' },
   { value: 'not_tested',      label: '[-] Not Tested Yet' },
   { value: 'partial',         label: '[P] Partially Implemented' },
   { value: 'complete',        label: '[C] Complete (pending review)' },
   { value: 'approved',        label: '[✓] Approved by Joe' },
-  { value: 'not_implemented', label: '[X] Not Implemented' },
 ]
 
 const GROUP_OPTIONS = [
@@ -20,51 +21,90 @@ const GROUP_OPTIONS = [
   { value: 'question',    label: 'Question' },
 ]
 
+// Compute the next top-level item number for a given group from existing items
+function nextItemNumber(allItems, group) {
+  const nums = allItems
+    .filter(i => i.group_name === group && !i.parent_id && i.item_number)
+    .map(i => {
+      // Handle prefixed numbers like "B-1", "Q-1" — strip prefix
+      const n = parseInt(String(i.item_number).replace(/^[A-Z]-/i, ''), 10)
+      return isNaN(n) ? 0 : n
+    })
+  const max = nums.length > 0 ? Math.max(...nums) : 0
+  // Add group prefix for bugs and questions
+  if (group === 'bug')      return `B-${max + 1}`
+  if (group === 'question') return `Q-${max + 1}`
+  return String(max + 1)
+}
+
+// Compute next sub-task number for a given parent item number
+function nextSubNumber(allItems, parentItemNumber) {
+  if (!parentItemNumber) return ''
+  const base = String(parentItemNumber).replace(/^[A-Z]-/i, '')
+  const subs = allItems
+    .filter(i => {
+      const n = String(i.item_number || '')
+      return n.startsWith(base + '.') && n.split('.').length === 2
+    })
+    .map(i => parseInt(String(i.item_number).split('.')[1], 10))
+    .filter(n => !isNaN(n))
+  const max = subs.length > 0 ? Math.max(...subs) : 0
+  return `${parentItemNumber}.${max + 1}`
+}
+
 export default function AddEditRoadmapItem() {
-  const { itemId } = useParams()           // /roadmap/:itemId/edit
-  const [searchParams] = useSearchParams() // ?group=enhancement  ?parent=uuid
-  const navigate = useNavigate()
-  const qc = useQueryClient()
-  const isEditing = !!itemId
+  const { itemId }         = useParams()
+  const [searchParams]     = useSearchParams()
+  const navigate           = useNavigate()
+  const qc                 = useQueryClient()
+  const isEditing          = !!itemId
+
+  const presetGroup  = searchParams.get('group')  || 'enhancement'
+  const presetParent = searchParams.get('parent') || ''
 
   // Fetch existing item when editing
   const { data: existing } = useQuery({
     queryKey: ['roadmap_item', itemId],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('roadmap_items')
-        .select('*')
-        .eq('id', itemId)
-        .single()
+        .from('roadmap_items').select('*').eq('id', itemId).single()
       if (error) throw error
       return data
     },
     enabled: isEditing,
   })
 
-  // Fetch all top-level items for the parent picker
-  const { data: parentOptions = [] } = useQuery({
-    queryKey: ['roadmap_parents'],
+  // Fetch all items — used for parent picker and auto-numbering
+  const { data: allItems = [] } = useQuery({
+    queryKey: ['roadmap'],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('roadmap_items')
-        .select('id, item_number, title, group_name')
-        .is('parent_id', null)
-        .order('group_name')
-        .order('sort_order')
+        .from('roadmap_items').select('*')
       if (error) throw error
       return data
     },
   })
 
-  const { register, handleSubmit, reset, watch, formState: { errors } } = useForm({
+  const parentOptions = allItems.filter(i => !i.parent_id)
+
+  // Auto-suggest item number when group or parent changes
+  const suggestNumber = useCallback((group, parentId) => {
+    if (parentId) {
+      const parent = allItems.find(i => i.id === parentId)
+      return nextSubNumber(allItems, parent?.item_number)
+    }
+    return nextItemNumber(allItems, group)
+  }, [allItems])
+
+  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm({
     defaultValues: {
-      group_name:     searchParams.get('group') || 'enhancement',
+      group_name:     presetGroup,
       status:         'new',
+      priority:       'medium',
       item_number:    '',
       title:          '',
       description:    '',
-      parent_id:      searchParams.get('parent') || '',
+      parent_id:      presetParent,
       date_requested: new Date().toISOString().split('T')[0],
       date_completed: '',
       impl_notes:     '',
@@ -73,13 +113,35 @@ export default function AddEditRoadmapItem() {
     },
   })
 
+  const watchedGroup    = watch('group_name')
+  const watchedParent   = watch('parent_id')
+  const watchedStatus   = watch('status')
+  const watchedItemNum  = watch('item_number')
+
+  // Populate item number suggestion when group or parent changes (add mode only)
+  useEffect(() => {
+    if (isEditing || allItems.length === 0) return
+    // Only auto-fill if the field is still empty or matches a previous suggestion
+    const suggested = suggestNumber(watchedGroup, watchedParent)
+    setValue('item_number', suggested)
+  }, [watchedGroup, watchedParent, allItems.length]) // eslint-disable-line
+
+  // When parent is selected, copy its group into the group field
+  useEffect(() => {
+    if (!watchedParent || isEditing) return
+    const parent = allItems.find(i => i.id === watchedParent)
+    if (parent) setValue('group_name', parent.group_name)
+  }, [watchedParent]) // eslint-disable-line
+
+  // Populate form when editing
   useEffect(() => {
     if (existing) {
       reset({
         ...existing,
-        parent_id:      existing.parent_id || '',
-        date_requested: existing.date_requested || '',
-        date_completed: existing.date_completed || '',
+        parent_id:      existing.parent_id      || '',
+        date_requested: existing.date_requested  || '',
+        date_completed: existing.date_completed  || '',
+        priority:       existing.priority        || 'medium',
       })
     }
   }, [existing, reset])
@@ -94,15 +156,10 @@ export default function AddEditRoadmapItem() {
         sort_order:     Number(values.sort_order) || 0,
       }
       if (isEditing) {
-        const { error } = await supabase
-          .from('roadmap_items')
-          .update(payload)
-          .eq('id', itemId)
+        const { error } = await supabase.from('roadmap_items').update(payload).eq('id', itemId)
         if (error) throw error
       } else {
-        const { error } = await supabase
-          .from('roadmap_items')
-          .insert(payload)
+        const { error } = await supabase.from('roadmap_items').insert(payload)
         if (error) throw error
       }
     },
@@ -114,10 +171,7 @@ export default function AddEditRoadmapItem() {
 
   const deleteMutation = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase
-        .from('roadmap_items')
-        .delete()
-        .eq('id', itemId)
+      const { error } = await supabase.from('roadmap_items').delete().eq('id', itemId)
       if (error) throw error
     },
     onSuccess: () => {
@@ -125,8 +179,6 @@ export default function AddEditRoadmapItem() {
       navigate('/roadmap')
     },
   })
-
-  const watchedStatus = watch('status')
 
   return (
     <div>
@@ -150,7 +202,7 @@ export default function AddEditRoadmapItem() {
           </div>
         )}
 
-        {/* Core fields */}
+        {/* ── Item Details ── */}
         <div className="card space-y-3">
           <h2 className="card-header">Item Details</h2>
 
@@ -173,7 +225,12 @@ export default function AddEditRoadmapItem() {
               </select>
             </div>
             <div>
-              <label className="field-label">Item # (display)</label>
+              <label className="field-label">
+                Item #
+                {!isEditing && (
+                  <span className="ml-1 text-slate-400 font-normal text-xs">(auto-suggested)</span>
+                )}
+              </label>
               <input
                 {...register('item_number')}
                 placeholder="e.g. 5, 5.1, B-2"
@@ -190,10 +247,10 @@ export default function AddEditRoadmapItem() {
                 .filter(p => !isEditing || p.id !== itemId)
                 .map(p => (
                   <option key={p.id} value={p.id}>
-                    [{p.group_name.substring(0,3).toUpperCase()}] {p.item_number ? `${p.item_number} · ` : ''}{p.title}
+                    [{p.group_name.substring(0,3).toUpperCase()}]
+                    {p.item_number ? ` ${p.item_number} ·` : ''} {p.title}
                   </option>
-                ))
-              }
+                ))}
             </select>
           </div>
 
@@ -208,11 +265,11 @@ export default function AddEditRoadmapItem() {
           </div>
         </div>
 
-        {/* Status & dates — Joe fills this section */}
+        {/* ── Joe's Review ── */}
         <div className="card space-y-3 border border-amber-200 bg-amber-50">
           <h2 className="card-header text-amber-800">Joe's Review</h2>
           <p className="text-xs text-amber-700">
-            Update status and add feedback after reviewing a completed item.
+            Update status, priority, and feedback after reviewing a completed item.
           </p>
 
           <div className="grid grid-cols-2 gap-3">
@@ -225,13 +282,12 @@ export default function AddEditRoadmapItem() {
               </select>
             </div>
             <div>
-              <label className="field-label">Sort Order</label>
-              <input
-                {...register('sort_order')}
-                type="number"
-                placeholder="10"
-                className="field-input"
-              />
+              <label className="field-label">Priority</label>
+              <select {...register('priority')} className="field-select">
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
             </div>
             <div>
               <label className="field-label">Date Requested</label>
@@ -243,6 +299,10 @@ export default function AddEditRoadmapItem() {
               <p className="text-xs text-slate-400 mt-0.5">
                 {watchedStatus === 'approved' ? 'Set when approving.' : 'Leave blank until done.'}
               </p>
+            </div>
+            <div>
+              <label className="field-label">Sort Order</label>
+              <input {...register('sort_order')} type="number" placeholder="10" className="field-input" />
             </div>
           </div>
 
@@ -257,7 +317,7 @@ export default function AddEditRoadmapItem() {
           </div>
         </div>
 
-        {/* Implementation notes — Claude fills this section */}
+        {/* ── Implementation Notes ── */}
         <div className="card space-y-3 border border-blue-200 bg-blue-50">
           <h2 className="card-header text-blue-800">Implementation Notes</h2>
           <p className="text-xs text-blue-700">
@@ -271,7 +331,7 @@ export default function AddEditRoadmapItem() {
           />
         </div>
 
-        {/* Actions */}
+        {/* ── Actions ── */}
         <div className="flex gap-3 pt-2">
           <button type="submit" disabled={mutation.isPending} className="btn-primary flex-1">
             {mutation.isPending ? 'Saving…' : isEditing ? 'Save Changes' : 'Add Item'}
