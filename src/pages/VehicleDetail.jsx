@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
-import { format, parseISO } from 'date-fns'
+import { format, parseISO, isBefore, addDays } from 'date-fns'
 import { Plus, ArrowLeft, Gauge, Pencil, Upload } from 'lucide-react'
 
 // ---- Data hooks ----
@@ -85,7 +85,7 @@ const useMaintenance = id => useQuery({
   queryKey: ['maintenance', id],
   queryFn: async () => {
     const { data, error } = await supabase
-      .from('maintenance_schedule')
+      .from('maintenance_due_soon')
       .select('*')
       .eq('vehicle_id', id)
       .order('priority')
@@ -447,12 +447,37 @@ function MaintenanceTab({ vehicleId }) {
   const navigate = useNavigate()
   const [filter, setFilter] = useState('all')
 
-  const statusColors = {
+  const today      = new Date()
+  const soonCutoff = addDays(today, 60)
+
+  function dueStatus(row) {
+    const d = row.next_due_date ? parseISO(row.next_due_date) : null
+    if (!d) return 'unknown'
+    if (isBefore(d, today))      return 'overdue'
+    if (isBefore(d, soonCutoff)) return 'due_soon'
+    return 'ok'
+  }
+
+  // Compute next due mileage from last done + interval (view may not expose it directly)
+  function nextDueMileage(row) {
+    if (!row.interval_miles) return null
+    const base = row.last_done_mileage ?? null
+    if (base === null) return null
+    return (base + row.interval_miles).toLocaleString()
+  }
+
+  const confColors = {
     confirmed: 'badge-green', estimated: 'badge-blue',
-    assumed: 'badge-amber', unknown: 'badge-red',
+    assumed: 'badge-amber',   unknown:   'badge-red',
   }
   const prioColors = {
     critical: 'badge-red', high: 'badge-amber', medium: 'badge-slate', low: 'badge-slate',
+  }
+  const dueColors = {
+    overdue:  'text-red-600 font-semibold',
+    due_soon: 'text-amber-600 font-medium',
+    ok:       'text-green-700',
+    unknown:  'text-slate-400',
   }
 
   const filtered = (data || []).filter(r => matchesFilter(r, filter))
@@ -490,41 +515,56 @@ function MaintenanceTab({ vehicleId }) {
                 <th>Item</th>
                 <th>Interval</th>
                 <th>Last Done</th>
+                <th>Due Date</th>
+                <th>Due Mileage</th>
                 <th>Conf.</th>
                 <th>Pri.</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map(row => (
-                <tr key={row.id}>
-                  <td className="font-medium text-slate-800">{row.service_item}</td>
-                  <td className="text-slate-500 text-xs">
-                    {row.interval_months ? `${row.interval_months} mo` : ''}
-                    {row.interval_months && row.interval_miles ? ' / ' : ''}
-                    {row.interval_miles ? `${row.interval_miles.toLocaleString()} mi` : ''}
-                  </td>
-                  <td className="text-slate-600 text-xs">
-                    {row.last_done_date
-                      ? format(parseISO(row.last_done_date), 'MMM yyyy')
-                      : row.baseline_date
-                      ? <span className="italic text-slate-400">{format(parseISO(row.baseline_date), 'MMM yyyy')} *</span>
-                      : <span className="text-slate-400">—</span>
-                    }
-                  </td>
-                  <td><span className={statusColors[row.knowledge_status] || 'badge-slate'} style={{fontSize:'10px'}}>{row.knowledge_status}</span></td>
-                  <td><span className={prioColors[row.priority] || 'badge-slate'} style={{fontSize:'10px'}}>{row.priority}</span></td>
-                  <td>
-                    <button
-                      onClick={() => navigate(`/vehicles/${vehicleId}/add-maintenance?edit=${row.id}`)}
-                      className="text-slate-400 hover:text-primary-600 p-1"
-                      title="Edit"
-                    >
-                      <Pencil size={12} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {filtered.map(row => {
+                const status   = dueStatus(row)
+                const dueMi    = nextDueMileage(row)
+                return (
+                  <tr key={row.id}>
+                    <td className="font-medium text-slate-800">{row.service_item}</td>
+                    <td className="text-slate-500 text-xs">
+                      {row.interval_months ? `${row.interval_months} mo` : ''}
+                      {row.interval_months && row.interval_miles ? ' / ' : ''}
+                      {row.interval_miles ? `${row.interval_miles.toLocaleString()} mi` : ''}
+                    </td>
+                    <td className="text-slate-600 text-xs">
+                      {row.last_done_date
+                        ? format(parseISO(row.last_done_date), 'MMM yyyy')
+                        : row.baseline_date
+                        ? <span className="italic text-slate-400">{format(parseISO(row.baseline_date), 'MMM yyyy')} *</span>
+                        : <span className="text-slate-400">—</span>
+                      }
+                    </td>
+                    <td className={`text-xs ${dueColors[status]}`}>
+                      {row.next_due_date
+                        ? format(parseISO(row.next_due_date), 'MMM yyyy')
+                        : <span className="text-slate-400">—</span>
+                      }
+                    </td>
+                    <td className={`text-xs ${dueMi ? dueColors[status] : ''}`}>
+                      {dueMi ? `${dueMi} mi` : <span className="text-slate-400">—</span>}
+                    </td>
+                    <td><span className={confColors[row.knowledge_status] || 'badge-slate'} style={{fontSize:'10px'}}>{row.knowledge_status}</span></td>
+                    <td><span className={prioColors[row.priority] || 'badge-slate'} style={{fontSize:'10px'}}>{row.priority}</span></td>
+                    <td>
+                      <button
+                        onClick={() => navigate(`/vehicles/${vehicleId}/add-maintenance?edit=${row.id}`)}
+                        className="text-slate-400 hover:text-primary-600 p-1"
+                        title="Edit"
+                      >
+                        <Pencil size={12} />
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
           <p className="text-xs text-slate-400 px-4 py-2">* Baseline estimate — not confirmed from service record</p>
