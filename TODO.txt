@@ -1,0 +1,33 @@
+Legend:
+[N] = New Item
+[C] = Correctly implemented
+[P] = Partially implemented
+[X] = Not implemented
+[-] = Not Tested by me yet
+
+Enhancements:
+1. [N] Add a new table and tab to track recommended changes for future development of this tool.  Use tracking similar to what I'm doing in this document with the addition of date of request.  It should enable me to approve any items that have been worked on and record the data of completion.  It should allow me to sort and filter items.  It should also include a two tier heirarchy of tasks and subtasks, similar to what I'm showing here by indenting subtasks, although the final implementation can take any appropriate format.  Add a field that you can update to explain what specific changes were made to address the requirement.  Add a field that allows me to provide feedback if I indicate that an item is incomplete or not implemented.
+2. [N] Add the ability to add a photo to the vehicle profile, display this photo on the vehicle page and on the vehicles list.  Size photos appropriately for the U/I.
+3. [P] Create more options to edit existing data throughout the interface.  If I can see it, I should be able to edit it.
+	3.1. [N] Edit Maintenance Item on the Maintenance Schedule Tab from the home page
+	3.2. [N] Vehicle\Service History items should be editable.  They should also include a link to the visit on the service_visit page.
+4. [C] Dashboard: Clicking on record should take you to that record.
+	4.1[C] Clicking on recent service Rover: "CEL Diagnostic - P0016" takes you to the Vehicle list.  It should open The Rover's Vehicle page, Service History Tab.
+5. [P] Service Visits are not exposed anywhere in the UI.  Add tab in Vehicle interace.  Clicking a service visit should present a list of Service_record items from that service_visit.
+	5.1 [N] There needs to be an edit option for each service_records entry in the service_visit page for a vehicle 
+	5.2 [N] Add another layer of grouping to the service_visit page allowing visits to be grouped by year.
+6. [P] Parts is not exposed anywhere in the UI.  It should be connected to a service_records entry and there should be a supporting UI for it.
+7. [X] Documents: Link documents that were used as sources for original records in excel without creating new records
+8. [C] Add Link document to any field that might have one: Service Item.
+9. [-] Enable Document Upload with a control on Documents Page.  Should trigger parsing of the documents using the same approach as was used when scanning documents in the GoogleDrive Vehicles\Documents for tracking\ Folder
+10. [N] Create Admin interface to add/edit enums, manage users
+11. [X] Enable Column Sorting throughout U/I where appropriate
+	11.1. [N] Allow Maintenance table to be sorted on vehicle/maintenance tab
+
+Bugs and Corrections:
+1. [X] Edit Maintenance Item: Tried to update Tire Rotation record for the 15 Suburban.  Set Confidence Level to Estimated.  Set date to 11/30/25.  Clicked Save Changes.  Got an error message: "Could not find the 'last_service_mileage' column of 'maintenance_schedule' in the schema cache"
+2. [N] Service_record identified Modifications are not shown on modification tab.  Migrate these to the modifications table and remove the modification category from service_records
+
+Questions:
+1. [N] Will the S/W recognize that a service action fulfills a scheduled maintenance item?
+

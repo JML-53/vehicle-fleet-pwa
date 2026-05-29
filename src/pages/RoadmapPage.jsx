@@ -1,0 +1,348 @@
+import { useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
+import { supabase } from '@/lib/supabase'
+import {
+  Plus, Pencil, ChevronDown, ChevronRight,
+  CheckCircle2, Circle, AlertCircle, Clock, XCircle, ThumbsUp
+} from 'lucide-react'
+
+// ── Status config ─────────────────────────────────────────────────────────────
+const STATUS = {
+  new:              { label: 'New',            badge: 'badge-blue',   Icon: Circle },
+  not_tested:       { label: 'Not Tested',     badge: 'badge-slate',  Icon: Clock },
+  partial:          { label: 'Partial',        badge: 'badge-amber',  Icon: AlertCircle },
+  complete:         { label: 'Complete',       badge: 'badge-green',  Icon: CheckCircle2 },
+  approved:         { label: 'Approved ✓',     badge: 'badge-teal',   Icon: ThumbsUp },
+  not_implemented:  { label: 'Not Impl.',      badge: 'badge-red',    Icon: XCircle },
+}
+
+const GROUP_META = {
+  enhancement: { label: 'Enhancements',      color: 'text-primary-700' },
+  bug:         { label: 'Bugs & Corrections', color: 'text-red-700' },
+  question:    { label: 'Questions',          color: 'text-amber-700' },
+}
+
+const GROUP_ORDER = ['enhancement', 'bug', 'question']
+
+const FILTERS = [
+  { key: 'all',             label: 'All' },
+  { key: 'new',             label: 'New' },
+  { key: 'not_tested',      label: 'Not Tested' },
+  { key: 'partial',         label: 'Partial' },
+  { key: 'complete',        label: 'Complete' },
+  { key: 'approved',        label: 'Approved' },
+  { key: 'not_implemented', label: 'Not Impl.' },
+]
+
+// ── Item row component ────────────────────────────────────────────────────────
+function RoadmapRow({ item, isChild = false, refetch }) {
+  const [open, setOpen] = useState(false)
+  const navigate = useNavigate()
+  const qc = useQueryClient()
+  const s = STATUS[item.status] || STATUS.new
+  const { Icon } = s
+
+  const quickApproveMutation = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase
+        .from('roadmap_items')
+        .update({ status: 'approved', date_completed: new Date().toISOString().split('T')[0] })
+        .eq('id', item.id)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['roadmap'] })
+    },
+  })
+
+  const hasDetails = item.description || item.impl_notes || item.feedback
+
+  return (
+    <div className={`${isChild ? 'ml-6 border-l-2 border-primary-100 pl-3' : ''}`}>
+      <div className={`flex items-start gap-2 py-2.5 px-3 rounded-lg group
+                       ${isChild ? 'hover:bg-slate-50' : 'hover:bg-slate-50'}`}>
+        {/* Expand toggle */}
+        <button
+          onClick={() => hasDetails && setOpen(o => !o)}
+          className={`mt-0.5 flex-shrink-0 text-slate-400 transition-transform
+                      ${!hasDetails ? 'opacity-0 pointer-events-none' : ''}`}
+        >
+          {open
+            ? <ChevronDown size={14} />
+            : <ChevronRight size={14} />}
+        </button>
+
+        {/* Status icon */}
+        <Icon size={16} className={`flex-shrink-0 mt-0.5 ${
+          item.status === 'approved'         ? 'text-teal-600' :
+          item.status === 'complete'         ? 'text-green-600' :
+          item.status === 'partial'          ? 'text-amber-500' :
+          item.status === 'not_implemented'  ? 'text-red-500' :
+          item.status === 'not_tested'       ? 'text-slate-400' :
+          'text-blue-500'
+        }`} />
+
+        {/* Main content */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            {item.item_number && (
+              <span className="text-xs font-mono text-slate-400 flex-shrink-0">
+                {item.item_number}
+              </span>
+            )}
+            <span className="text-sm font-medium text-slate-800">{item.title}</span>
+            <span className={`${s.badge} text-xs flex-shrink-0`}>{s.label}</span>
+          </div>
+
+          {/* Dates row */}
+          {(item.date_requested || item.date_completed) && (
+            <div className="flex gap-3 mt-0.5">
+              {item.date_requested && (
+                <span className="text-xs text-slate-400">
+                  Requested: {new Date(item.date_requested).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                </span>
+              )}
+              {item.date_completed && (
+                <span className="text-xs text-green-600">
+                  Completed: {new Date(item.date_completed).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Expanded details */}
+          {open && (
+            <div className="mt-2 space-y-2 border-t border-slate-100 pt-2">
+              {item.description && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-0.5">Requirement</p>
+                  <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap">{item.description}</p>
+                </div>
+              )}
+              {item.impl_notes && (
+                <div className="bg-blue-50 rounded-md p-2">
+                  <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-0.5">Implementation Notes</p>
+                  <p className="text-xs text-blue-900 leading-relaxed whitespace-pre-wrap">{item.impl_notes}</p>
+                </div>
+              )}
+              {item.feedback && (
+                <div className="bg-amber-50 rounded-md p-2">
+                  <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-0.5">Feedback</p>
+                  <p className="text-xs text-amber-900 leading-relaxed whitespace-pre-wrap">{item.feedback}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+          {item.status === 'complete' && (
+            <button
+              onClick={() => quickApproveMutation.mutate()}
+              title="Approve"
+              className="text-green-600 hover:text-green-800 px-2 py-1 text-xs font-medium
+                         bg-green-50 hover:bg-green-100 rounded transition-colors"
+            >
+              Approve
+            </button>
+          )}
+          <button
+            onClick={() => navigate(`/roadmap/${item.id}/edit`)}
+            className="text-slate-400 hover:text-primary-700 p-1 rounded"
+            title="Edit"
+          >
+            <Pencil size={13} />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+export default function RoadmapPage() {
+  const [filter, setFilter] = useState('all')
+  const [sortBy, setSortBy] = useState('sort_order') // 'sort_order' | 'date_requested' | 'status'
+  const navigate = useNavigate()
+
+  const { data: allItems = [], isLoading } = useQuery({
+    queryKey: ['roadmap'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('roadmap_items')
+        .select('*')
+        .order('group_name')
+        .order('sort_order')
+        .order('item_number')
+      if (error) throw error
+      return data
+    },
+  })
+
+  // Separate top-level items and children
+  const topLevel = allItems.filter(i => !i.parent_id)
+  const childrenOf = id => allItems.filter(i => i.parent_id === id)
+
+  // Apply status filter — if a parent matches, show it with all children;
+  // if a child matches, show it (and its parent will still be shown as context)
+  const visibleIds = new Set()
+  if (filter === 'all') {
+    allItems.forEach(i => visibleIds.add(i.id))
+  } else {
+    allItems.forEach(i => {
+      if (i.status === filter) {
+        visibleIds.add(i.id)
+        if (i.parent_id) visibleIds.add(i.parent_id) // also show the parent
+      }
+    })
+  }
+
+  // Sort function
+  function sortItems(items) {
+    return [...items].sort((a, b) => {
+      if (sortBy === 'date_requested')
+        return (a.date_requested || '').localeCompare(b.date_requested || '')
+      if (sortBy === 'status')
+        return a.status.localeCompare(b.status)
+      // default: sort_order then item_number
+      if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order
+      return (a.item_number || '').localeCompare(b.item_number || '', undefined, { numeric: true })
+    })
+  }
+
+  // Counts per group for the header badges
+  function countForGroup(group) {
+    return allItems.filter(i => i.group_name === group).length
+  }
+
+  return (
+    <div>
+      {/* Header */}
+      <div className="bg-primary-900 text-white px-5 py-5">
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-xl font-bold">Dev Roadmap</h1>
+            <p className="text-primary-300 text-sm mt-0.5">
+              Feature requests, bugs, and questions — tracked as they're built
+            </p>
+          </div>
+          <button
+            onClick={() => navigate('/roadmap/new')}
+            className="flex items-center gap-1.5 bg-primary-700 hover:bg-primary-600
+                       text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <Plus size={14} /> Add Item
+          </button>
+        </div>
+
+        {/* Status filter chips */}
+        <div className="flex flex-wrap gap-2 mt-3">
+          {FILTERS.map(f => (
+            <button
+              key={f.key}
+              onClick={() => setFilter(f.key)}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                filter === f.key
+                  ? 'bg-white text-primary-900'
+                  : 'bg-primary-800 text-primary-200 hover:bg-primary-700'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Sort bar */}
+      <div className="flex items-center gap-2 px-5 py-2 bg-white border-b border-slate-200 text-xs text-slate-500">
+        <span>Sort:</span>
+        {[
+          { key: 'sort_order',      label: 'Default' },
+          { key: 'date_requested',  label: 'Date' },
+          { key: 'status',          label: 'Status' },
+        ].map(s => (
+          <button
+            key={s.key}
+            onClick={() => setSortBy(s.key)}
+            className={`px-2 py-0.5 rounded font-medium transition-colors ${
+              sortBy === s.key
+                ? 'bg-primary-100 text-primary-800'
+                : 'hover:bg-slate-100 text-slate-500'
+            }`}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Content */}
+      <div className="p-4 max-w-3xl mx-auto space-y-6 pb-10">
+        {isLoading && <p className="text-slate-400 text-sm animate-pulse py-8 text-center">Loading…</p>}
+
+        {GROUP_ORDER.map(group => {
+          const groupItems = sortItems(
+            topLevel.filter(i => i.group_name === group && visibleIds.has(i.id))
+          )
+          if (groupItems.length === 0 && filter !== 'all') return null
+
+          const meta = GROUP_META[group]
+          const total = countForGroup(group)
+          const approvedCount = allItems.filter(i => i.group_name === group && i.status === 'approved').length
+          const completeCount = allItems.filter(i => i.group_name === group && (i.status === 'complete' || i.status === 'approved')).length
+
+          return (
+            <div key={group}>
+              {/* Group header */}
+              <div className="flex items-center justify-between mb-2">
+                <h2 className={`card-header ${meta.color}`}>{meta.label}</h2>
+                <div className="flex items-center gap-2 text-xs text-slate-400">
+                  <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">
+                    {approvedCount}/{total} approved
+                  </span>
+                  {completeCount > approvedCount && (
+                    <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+                      {completeCount - approvedCount} awaiting review
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="card divide-y divide-slate-50">
+                {groupItems.length === 0 ? (
+                  <p className="text-slate-400 text-sm px-3 py-4 text-center">
+                    No items match the current filter.
+                  </p>
+                ) : (
+                  groupItems.map(item => (
+                    <div key={item.id}>
+                      <RoadmapRow item={item} />
+                      {/* Subtasks */}
+                      {sortItems(childrenOf(item.id))
+                        .filter(c => visibleIds.has(c.id))
+                        .map(child => (
+                          <RoadmapRow key={child.id} item={child} isChild />
+                        ))
+                      }
+                    </div>
+                  ))
+                )}
+
+                {/* Quick-add subtask / new item for this group */}
+                <div className="px-3 py-2">
+                  <button
+                    onClick={() => navigate(`/roadmap/new?group=${group}`)}
+                    className="text-xs text-slate-400 hover:text-primary-700 flex items-center gap-1"
+                  >
+                    <Plus size={12} /> Add {GROUP_META[group].label.replace(/s$/, '').toLowerCase()} item
+                  </button>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}

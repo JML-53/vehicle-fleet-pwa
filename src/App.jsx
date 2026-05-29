@@ -18,6 +18,8 @@ import AddEditRegistration from '@/pages/AddEditRegistration'
 import PendingWorkPage from '@/pages/PendingWorkPage'
 import MaintenanceSchedulePage from '@/pages/MaintenanceSchedulePage'
 import DocumentsPage from '@/pages/DocumentsPage'
+import RoadmapPage from '@/pages/RoadmapPage'
+import AddEditRoadmapItem from '@/pages/AddEditRoadmapItem'
 
 function RequireAuth({ children }) {
   const { session, loading } = useAuth()
@@ -70,6 +72,11 @@ export default function App() {
         <Route path="maintenance"        element={<MaintenanceSchedulePage />} />
         <Route path="documents"          element={<DocumentsPage />} />
         <Route path="documents/upload"   element={<UploadDocument />} />
+
+        {/* Dev Roadmap */}
+        <Route path="roadmap"                    element={<RoadmapPage />} />
+        <Route path="roadmap/new"                element={<AddEditRoadmapItem />} />
+        <Route path="roadmap/:itemId/edit"       element={<AddEditRoadmapItem />} />
       </Route>
 
       {/* Catch-all */}

@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, Car, ClipboardList, Wrench,
-  FileText, LogOut, ChevronRight
+  FileText, LogOut, ChevronRight, ListTodo
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 
@@ -50,6 +50,24 @@ export default function Sidebar() {
           </NavLink>
         ))}
       </nav>
+
+      {/* Dev Roadmap — below a thin divider, just above user block */}
+      <div className="px-3 pb-2 border-t border-primary-800 pt-2">
+        <NavLink
+          to="/roadmap"
+          className={({ isActive }) =>
+            `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+              isActive
+                ? 'bg-primary-700 text-white'
+                : 'text-primary-400 hover:bg-primary-800 hover:text-white'
+            }`
+          }
+        >
+          <ListTodo size={18} strokeWidth={1.8} />
+          <span className="flex-1">Dev Roadmap</span>
+          <ChevronRight size={14} className="opacity-30" />
+        </NavLink>
+      </div>
 
       {/* User / sign out */}
       <div className="px-3 py-4 border-t border-primary-800">
