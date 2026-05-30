@@ -288,28 +288,37 @@ function ServiceVisitsTab({ vehicleId }) {
     return (
       <div className="card">
         {/* Visit header */}
-        <button
-          className="w-full text-left"
-          onClick={() => setExpanded(p => ({ ...p, [visit.id]: !p[visit.id] }))}
-        >
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <p className="font-semibold text-slate-800 text-sm">
-                {visit.visit_date ? format(parseISO(visit.visit_date), 'MMM d, yyyy') : '—'}
-                {visit.shops?.name ? ` — ${visit.shops.name}` : ''}
-              </p>
-              <p className="text-xs text-slate-500 mt-0.5">
-                {records.length} service item{records.length !== 1 ? 's' : ''}
-                {visit.work_order ? ` · WO ${visit.work_order}` : ''}
-                {visit.invoice_number ? ` · Inv ${visit.invoice_number}` : ''}
-                {visit.total_cost != null ? ` · $${Number(visit.total_cost).toLocaleString()}` : ''}
-              </p>
+        <div className="flex items-start gap-2">
+          <button
+            className="flex-1 text-left"
+            onClick={() => setExpanded(p => ({ ...p, [visit.id]: !p[visit.id] }))}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="font-semibold text-slate-800 text-sm">
+                  {visit.visit_date ? format(parseISO(visit.visit_date), 'MMM d, yyyy') : '—'}
+                  {visit.shops?.name ? ` — ${visit.shops.name}` : ''}
+                </p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {records.length} service item{records.length !== 1 ? 's' : ''}
+                  {visit.work_order ? ` · WO ${visit.work_order}` : ''}
+                  {visit.invoice_number ? ` · Inv ${visit.invoice_number}` : ''}
+                  {visit.total_cost != null ? ` · $${Number(visit.total_cost).toLocaleString()}` : ''}
+                </p>
+              </div>
+              <span className="text-slate-400 text-lg leading-none mt-0.5">
+                {isOpen ? '▲' : '▼'}
+              </span>
             </div>
-            <span className="text-slate-400 text-lg leading-none mt-0.5">
-              {isOpen ? '▲' : '▼'}
-            </span>
-          </div>
-        </button>
+          </button>
+          <button
+            onClick={() => navigate(`/vehicles/${vehicleId}/visits/${visit.id}/edit`)}
+            className="text-slate-400 hover:text-primary-600 p-1 flex-shrink-0 mt-0.5"
+            title="Edit this visit"
+          >
+            <Pencil size={13} />
+          </button>
+        </div>
 
         {/* Expanded records */}
         {isOpen && (
@@ -594,13 +603,14 @@ function MaintenanceTab({ vehicleId }) {
           <table className="data-table min-w-full">
             <thead>
               <tr>
-                <SortHeader label="Item"      col="service_item"  sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
+                <SortHeader label="Item"          col="service_item"   sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
                 <th>Interval</th>
-                <SortHeader label="Last Done" col="last_done_date" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
-                <SortHeader label="Due Date"  col="next_due_date"  sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
+                <SortHeader label="Last Done"     col="last_done_date" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
+                <th>Last Mi.</th>
+                <SortHeader label="Due Date"      col="next_due_date"  sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
                 <th>Due Mileage</th>
                 <th>Conf.</th>
-                <SortHeader label="Pri."      col="priority"       sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
+                <SortHeader label="Pri."          col="priority"       sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
                 <th></th>
               </tr>
             </thead>
@@ -622,6 +632,12 @@ function MaintenanceTab({ vehicleId }) {
                         : row.baseline_date
                         ? <span className="italic text-slate-400">{format(parseISO(row.baseline_date), 'MMM yyyy')} *</span>
                         : <span className="text-slate-400">—</span>
+                      }
+                    </td>
+                    <td className="text-xs text-slate-500">
+                      {row.last_done_mileage
+                        ? `${Number(row.last_done_mileage).toLocaleString()}`
+                        : <span className="text-slate-300">—</span>
                       }
                     </td>
                     <td className={`text-xs ${dueColors[status]}`}>

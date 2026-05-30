@@ -30,9 +30,34 @@ function rowMatchesFilter(row, filter) {
   return !named.some(kw => text.includes(kw))
 }
 
+function SortHeader({ label, col, sortCol, sortDir, onSort }) {
+  const active = sortCol === col
+  return (
+    <th
+      onClick={() => onSort(col)}
+      className="cursor-pointer select-none hover:bg-slate-100 transition-colors"
+      title={`Sort by ${label}`}
+    >
+      <span className="flex items-center gap-1">
+        {label}
+        <span className="text-slate-300 text-xs">
+          {active ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
+        </span>
+      </span>
+    </th>
+  )
+}
+
 export default function MaintenanceSchedulePage() {
-  const [filter, setFilter] = useState('all')
+  const [filter,  setFilter]  = useState('all')
+  const [sortCol, setSortCol] = useState('next_due_date')
+  const [sortDir, setSortDir] = useState('asc')
   const navigate = useNavigate()
+
+  function handleSort(col) {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortCol(col); setSortDir('asc') }
+  }
 
   const { data, isLoading } = useQuery({
     queryKey: ['maintenance_due_soon_all'],
@@ -78,6 +103,24 @@ export default function MaintenanceSchedulePage() {
     const base = row.last_done_mileage ?? null
     if (base === null) return null
     return base + row.interval_miles
+  }
+
+  const PRIO_ORDER = { critical: 0, high: 1, medium: 2, low: 3 }
+
+  function sortRows(rows) {
+    return [...rows].sort((a, b) => {
+      let cmp = 0
+      if (sortCol === 'service_item') {
+        cmp = (a.service_item || '').localeCompare(b.service_item || '')
+      } else if (sortCol === 'next_due_date') {
+        cmp = (a.next_due_date || '9999').localeCompare(b.next_due_date || '9999')
+      } else if (sortCol === 'last_done_date') {
+        cmp = (a.last_done_date || '').localeCompare(b.last_done_date || '')
+      } else if (sortCol === 'priority') {
+        cmp = (PRIO_ORDER[a.priority] ?? 2) - (PRIO_ORDER[b.priority] ?? 2)
+      }
+      return sortDir === 'asc' ? cmp : -cmp
+    })
   }
 
   const filtered = (data || []).filter(row => rowMatchesFilter(row, filter))
@@ -128,17 +171,19 @@ export default function MaintenanceSchedulePage() {
               <table className="data-table min-w-full">
                 <thead>
                   <tr>
-                    <th>Item</th>
+                    <SortHeader label="Item"      col="service_item"   sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
                     <th>Interval</th>
-                    <th>Next Due Date</th>
+                    <SortHeader label="Last Done" col="last_done_date" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
+                    <th>Last Mi.</th>
+                    <SortHeader label="Due Date"  col="next_due_date"  sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
                     <th>Due Mileage</th>
-                    <th>Status</th>
-                    <th>Confidence</th>
+                    <SortHeader label="Status"    col="priority"       sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
+                    <th>Conf.</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map(row => {
+                  {sortRows(rows).map(row => {
                     const status  = classify(row)
                     const dueMi   = nextDueMileage(row)
                     return (
@@ -148,6 +193,20 @@ export default function MaintenanceSchedulePage() {
                           {row.interval_months ? `${row.interval_months} mo` : ''}
                           {row.interval_months && row.interval_miles ? ' / ' : ''}
                           {row.interval_miles ? `${row.interval_miles.toLocaleString()} mi` : ''}
+                        </td>
+                        <td className="text-slate-600 text-xs">
+                          {row.last_done_date
+                            ? format(parseISO(row.last_done_date), 'MMM yyyy')
+                            : row.baseline_date
+                            ? <span className="italic text-slate-400">{format(parseISO(row.baseline_date), 'MMM yyyy')} *</span>
+                            : <span className="text-slate-400">—</span>
+                          }
+                        </td>
+                        <td className="text-xs text-slate-500">
+                          {row.last_done_mileage
+                            ? Number(row.last_done_mileage).toLocaleString()
+                            : <span className="text-slate-300">—</span>
+                          }
                         </td>
                         <td className={`text-xs ${dueDateColors[status]}`}>
                           {row.next_due_date

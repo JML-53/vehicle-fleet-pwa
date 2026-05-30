@@ -165,7 +165,9 @@ export default function AddEditRoadmapItem() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['roadmap'] })
-      navigate('/roadmap')
+      // Also invalidate the single-item cache so re-opening the edit form shows fresh data
+      if (itemId) qc.invalidateQueries({ queryKey: ['roadmap_item', itemId] })
+      navigate(-1)  // returns to /roadmap preserving its URL params (filter + sort)
     },
   })
 

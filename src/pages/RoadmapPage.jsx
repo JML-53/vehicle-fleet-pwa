@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import {
@@ -210,9 +210,15 @@ function RoadmapRow({ item, isChild = false }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function RoadmapPage() {
-  const [filter, setFilter]   = useState('all')
-  const [sortBy, setSortBy]   = useState('item_number') // default: item number
+  const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
+
+  // Persist filter + sort in URL so they survive navigating to add/edit and back
+  const filter = searchParams.get('filter') || 'all'
+  const sortBy = searchParams.get('sort')   || 'item_number'
+
+  function setFilter(val) { setSearchParams(p => { p.set('filter', val); return p }, { replace: true }) }
+  function setSortBy(val) { setSearchParams(p => { p.set('sort',   val); return p }, { replace: true }) }
 
   const { data: allItems = [], isLoading } = useQuery({
     queryKey: ['roadmap'],
@@ -223,6 +229,8 @@ export default function RoadmapPage() {
       if (error) throw error
       return data
     },
+    // Always re-fetch when navigating back to this page
+    staleTime: 0,
   })
 
   const topLevel  = allItems.filter(i => !i.parent_id)
