@@ -97,6 +97,9 @@ export default function MaintenanceSchedulePage() {
     confirmed: 'badge-green', estimated: 'badge-blue',
     assumed: 'badge-amber', unknown: 'badge-red',
   }
+  const prioColors = {
+    critical: 'badge-red', high: 'badge-amber', medium: 'badge-slate', low: 'badge-slate',
+  }
 
   function nextDueMileage(row) {
     if (!row.interval_miles) return null
@@ -177,8 +180,9 @@ export default function MaintenanceSchedulePage() {
                     <th>Last Mi.</th>
                     <SortHeader label="Due Date"  col="next_due_date"  sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
                     <th>Due Mileage</th>
-                    <SortHeader label="Status"    col="priority"       sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
+                    <th>Status</th>
                     <th>Conf.</th>
+                    <SortHeader label="Pri." col="priority" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
                     <th></th>
                   </tr>
                 </thead>
@@ -222,6 +226,7 @@ export default function MaintenanceSchedulePage() {
                         </td>
                         <td><span className={statusColors[status]}>{status.replace('_',' ')}</span></td>
                         <td><span className={confColors[row.knowledge_status] || 'badge-slate'}>{row.knowledge_status}</span></td>
+                        <td><span className={prioColors[row.priority] || 'badge-slate'} style={{fontSize:'10px'}}>{row.priority}</span></td>
                         <td>
                           <div className="flex items-center gap-0.5">
                             <button

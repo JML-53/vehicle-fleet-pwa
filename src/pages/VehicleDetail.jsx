@@ -545,6 +545,10 @@ function MaintenanceTab({ vehicleId }) {
   const prioColors = {
     critical: 'badge-red', high: 'badge-amber', medium: 'badge-slate', low: 'badge-slate',
   }
+  const statusColors = {
+    overdue:  'badge-red',   due_soon: 'badge-amber',
+    ok:       'badge-green', unknown:  'badge-slate',
+  }
   const dueColors = {
     overdue:  'text-red-600 font-semibold',
     due_soon: 'text-amber-600 font-medium',
@@ -609,6 +613,7 @@ function MaintenanceTab({ vehicleId }) {
                 <th>Last Mi.</th>
                 <SortHeader label="Due Date"      col="next_due_date"  sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
                 <th>Due Mileage</th>
+                <th>Status</th>
                 <th>Conf.</th>
                 <SortHeader label="Pri."          col="priority"       sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
                 <th></th>
@@ -649,6 +654,7 @@ function MaintenanceTab({ vehicleId }) {
                     <td className={`text-xs ${dueMi ? dueColors[status] : ''}`}>
                       {dueMi ? `${dueMi} mi` : <span className="text-slate-400">—</span>}
                     </td>
+                    <td><span className={statusColors[status] || 'badge-slate'} style={{fontSize:'10px'}}>{status.replace('_',' ')}</span></td>
                     <td><span className={confColors[row.knowledge_status] || 'badge-slate'} style={{fontSize:'10px'}}>{row.knowledge_status}</span></td>
                     <td><span className={prioColors[row.priority] || 'badge-slate'} style={{fontSize:'10px'}}>{row.priority}</span></td>
                     <td>
