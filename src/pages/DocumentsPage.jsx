@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { format, parseISO } from 'date-fns'
-import { FileText, Download, Upload } from 'lucide-react'
+import { Upload, ChevronRight } from 'lucide-react'
 
 const DOC_ICONS = {
   receipt: '🧾', estimate: '📋', inspection_report: '✅',
@@ -15,17 +15,16 @@ export default function DocumentsPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('documents')
-        .select('*, vehicles(name, year, make, model)')
-        .order('document_date', { ascending: false })
+        .select(`
+          id, filename, document_type, document_date, description, mime_type,
+          vehicles(name),
+          service_visits!service_visits_source_document_id_fkey(id)
+        `)
+        .order('document_date', { ascending: false, nullsFirst: false })
       if (error) throw error
       return data
     },
   })
-
-  async function getDownloadUrl(storagePath) {
-    const { data } = await supabase.storage.from('documents').createSignedUrl(storagePath, 3600)
-    if (data?.signedUrl) window.open(data.signedUrl, '_blank')
-  }
 
   return (
     <div>
@@ -56,31 +55,37 @@ export default function DocumentsPage() {
           </p>
         )}
 
-        {(data || []).map(doc => (
-          <div key={doc.id} className="card flex items-start gap-3">
-            <span className="text-2xl flex-shrink-0 mt-0.5">
-              {DOC_ICONS[doc.document_type] || '📁'}
-            </span>
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold text-sm text-slate-800 truncate">{doc.filename}</p>
-              <p className="text-xs text-slate-500 mt-0.5">
-                {doc.vehicles?.name}
-                {doc.document_date ? ` · ${format(parseISO(doc.document_date), 'MMM d, yyyy')}` : ''}
-                {doc.document_type ? ` · ${doc.document_type.replace(/_/g, ' ')}` : ''}
-              </p>
-              {doc.description && (
-                <p className="text-xs text-slate-600 mt-1 line-clamp-2">{doc.description}</p>
-              )}
-            </div>
-            <button
-              onClick={() => getDownloadUrl(doc.storage_path)}
-              className="flex-shrink-0 text-primary-600 hover:text-primary-800 p-1"
-              title="Open document"
+        {(data || []).map(doc => {
+          const linkedCount = (doc.service_visits || []).length
+          return (
+            <Link
+              key={doc.id}
+              to={`/documents/${doc.id}`}
+              className="card flex items-center gap-3 hover:bg-slate-50 transition-colors no-underline"
             >
-              <Download size={16} />
-            </button>
-          </div>
-        ))}
+              <span className="text-2xl flex-shrink-0">
+                {DOC_ICONS[doc.document_type] || '📁'}
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm text-slate-800 truncate">{doc.filename}</p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {doc.vehicles?.name}
+                  {doc.document_date ? ` · ${format(parseISO(doc.document_date), 'MMM d, yyyy')}` : ''}
+                  {doc.document_type ? ` · ${doc.document_type.replace(/_/g, ' ')}` : ''}
+                </p>
+                {doc.description && (
+                  <p className="text-xs text-slate-600 mt-1 line-clamp-1">{doc.description}</p>
+                )}
+                {linkedCount > 0 && (
+                  <p className="text-xs text-primary-600 font-medium mt-1">
+                    {linkedCount} linked visit{linkedCount !== 1 ? 's' : ''}
+                  </p>
+                )}
+              </div>
+              <ChevronRight size={16} className="text-slate-300 flex-shrink-0" />
+            </Link>
+          )
+        })}
       </div>
     </div>
   )

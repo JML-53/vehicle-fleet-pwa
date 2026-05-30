@@ -18,6 +18,7 @@ import AddEditRegistration from '@/pages/AddEditRegistration'
 import PendingWorkPage from '@/pages/PendingWorkPage'
 import MaintenanceSchedulePage from '@/pages/MaintenanceSchedulePage'
 import DocumentsPage from '@/pages/DocumentsPage'
+import DocumentDetail from '@/pages/DocumentDetail'
 import RoadmapPage from '@/pages/RoadmapPage'
 import AddEditRoadmapItem from '@/pages/AddEditRoadmapItem'
 import AddEditServiceRecord from '@/pages/AddEditServiceRecord'
@@ -75,8 +76,9 @@ export default function App() {
         {/* Fleet-wide views */}
         <Route path="pending"            element={<PendingWorkPage />} />
         <Route path="maintenance"        element={<MaintenanceSchedulePage />} />
-        <Route path="documents"          element={<DocumentsPage />} />
+        <Route path="documents"            element={<DocumentsPage />} />
         <Route path="documents/upload"   element={<UploadDocument />} />
+        <Route path="documents/:docId"   element={<DocumentDetail />} />
 
         {/* Dev Roadmap */}
         <Route path="roadmap"                    element={<RoadmapPage />} />

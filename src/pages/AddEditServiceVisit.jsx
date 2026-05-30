@@ -401,15 +401,17 @@ export default function AddEditServiceVisit() {
 
       // 2. Upsert visit
       const visitPayload = {
-        vehicle_id:     vehicleId,
-        visit_date:     formData.visit_date,
-        visit_type:     formData.visit_type,
-        shop_id:        formData.shop_id        || null,
-        work_order:     formData.work_order      || null,
-        invoice_number: formData.invoice_number  || null,
-        technician:     formData.technician      || null,
-        total_cost:     formData.total_cost      ? parseFloat(formData.total_cost) : null,
-        notes:          formData.notes           || null,
+        vehicle_id:         vehicleId,
+        visit_date:         formData.visit_date,
+        visit_type:         formData.visit_type,
+        shop_id:            formData.shop_id        || null,
+        work_order:         formData.work_order      || null,
+        invoice_number:     formData.invoice_number  || null,
+        technician:         formData.technician      || null,
+        total_cost:         formData.total_cost      ? parseFloat(formData.total_cost) : null,
+        notes:              formData.notes           || null,
+        // Link back to the source document when created from AI parse
+        ...(!isEditing && parsedDocId ? { source_document_id: parsedDocId } : {}),
       }
 
       if (isEditing) {
