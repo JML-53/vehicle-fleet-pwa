@@ -19,7 +19,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm, useFieldArray, Controller } from 'react-hook-form'
 import { supabase } from '@/lib/supabase'
-import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronRight, Sparkles, X } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronRight, Sparkles, X, AlertTriangle } from 'lucide-react'
 
 const SERVICE_CATEGORIES = [
   'oil_change','brakes','tires','suspension','electrical','ac_hvac','engine',
@@ -254,7 +254,9 @@ export default function AddEditServiceVisit() {
   const location   = useLocation()
   const qc         = useQueryClient()
   const isEditing  = !!visitId
-  const [serverError, setServerError] = useState('')
+  const [serverError,   setServerError]   = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deletebusy,    setDeleteBusy]    = useState(false)
 
   // State passed from UploadDocument after AI parse
   const parsedState   = location.state?.parsed      || null   // { visit, records }
@@ -513,6 +515,27 @@ export default function AddEditServiceVisit() {
     onError: (err) => setServerError(err.message || 'Save failed.'),
   })
 
+  // ── Delete visit ──────────────────────────────────────────────────────────
+  async function handleDeleteVisit() {
+    setDeleteBusy(true)
+    // Delete parts → service_records → mileage_log link → visit
+    const { data: records } = await supabase
+      .from('service_records').select('id').eq('visit_id', visitId)
+    const recordIds = (records || []).map(r => r.id)
+    if (recordIds.length) {
+      await supabase.from('parts').delete().in('service_record_id', recordIds)
+      await supabase.from('service_records').delete().in('id', recordIds)
+    }
+    // Clear mileage_log service_visit_id reference (keep the mileage entry)
+    await supabase.from('mileage_log').update({ service_visit_id: null }).eq('service_visit_id', visitId)
+    await supabase.from('service_visits').delete().eq('id', visitId)
+    qc.invalidateQueries({ queryKey: ['service_visits',  vehicleId] })
+    qc.invalidateQueries({ queryKey: ['service_history', vehicleId] })
+    qc.invalidateQueries({ queryKey: ['mileage',         vehicleId] })
+    qc.invalidateQueries({ queryKey: ['recent_service'] })
+    navigate(`/vehicles/${vehicleId}?tab=visits`)
+  }
+
   // ── Add shop inline ────────────────────────────────────────────────────────
   async function handleAddShop() {
     if (!newShopName.trim()) return
@@ -727,6 +750,46 @@ export default function AddEditServiceVisit() {
             Cancel
           </button>
         </div>
+
+        {isEditing && !confirmDelete && (
+          <div className="pb-6 flex justify-end">
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(true)}
+              className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-700 transition-colors"
+            >
+              <Trash2 size={13} /> Delete this visit
+            </button>
+          </div>
+        )}
+
+        {isEditing && confirmDelete && (
+          <div className="pb-6 p-3 bg-red-50 border border-red-200 rounded-lg space-y-2">
+            <p className="text-sm text-red-700 flex items-center gap-1.5 font-medium">
+              <AlertTriangle size={14} /> Delete this entire visit?
+            </p>
+            <p className="text-xs text-red-600">
+              This will permanently delete the visit, all service records, and all parts logged under it. This cannot be undone.
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleDeleteVisit}
+                disabled={deletebusy}
+                className="btn-primary bg-red-600 hover:bg-red-700 text-xs py-1.5 px-3 disabled:opacity-50"
+              >
+                {deletebusy ? 'Deleting…' : 'Yes, delete visit'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(false)}
+                className="btn-secondary text-xs py-1.5 px-3"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
       </form>
     </div>
