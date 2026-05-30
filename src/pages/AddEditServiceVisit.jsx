@@ -261,6 +261,13 @@ export default function AddEditServiceVisit() {
   const parsedDocId   = location.state?.documentId  || null
   const [parsedBanner, setParsedBanner] = useState(!!parsedState)
 
+  // Inline add-shop state
+  const [showAddShop,  setShowAddShop]  = useState(false)
+  const [newShopName,  setNewShopName]  = useState('')
+  const [newShopCity,  setNewShopCity]  = useState('')
+  const [newShopState, setNewShopState] = useState('')
+  const [addShopBusy,  setAddShopBusy]  = useState(false)
+
   const { data: shops } = useShops()
 
   // Load existing visit + records + parts when editing
@@ -284,7 +291,7 @@ export default function AddEditServiceVisit() {
     enabled: isEditing,
   })
 
-  const { register, control, handleSubmit, reset, watch } = useForm({
+  const { register, control, handleSubmit, reset, watch, setValue } = useForm({
     defaultValues: {
       visit_date:     new Date().toISOString().split('T')[0],
       shop_id:        '',
@@ -506,6 +513,28 @@ export default function AddEditServiceVisit() {
     onError: (err) => setServerError(err.message || 'Save failed.'),
   })
 
+  // ── Add shop inline ────────────────────────────────────────────────────────
+  async function handleAddShop() {
+    if (!newShopName.trim()) return
+    setAddShopBusy(true)
+    const { data: inserted, error } = await supabase
+      .from('shops')
+      .insert({
+        name:    newShopName.trim(),
+        city:    newShopCity.trim()  || null,
+        state:   newShopState.trim() || null,
+        is_self: false,
+      })
+      .select('id')
+      .single()
+    setAddShopBusy(false)
+    if (error) { setServerError(error.message); return }
+    await qc.invalidateQueries({ queryKey: ['shops'] })
+    setValue('shop_id', inserted.id)
+    setShowAddShop(false)
+    setNewShopName(''); setNewShopCity(''); setNewShopState('')
+  }
+
   if (isEditing && isLoading) {
     return <div className="p-4 text-slate-400 text-sm animate-pulse">Loading visit…</div>
   }
@@ -579,9 +608,47 @@ export default function AddEditServiceVisit() {
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </select>
-              {parsedState?.visit?.shop_name && !watch('shop_id') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setNewShopName(parsedState?.visit?.shop_name || '')
+                  setShowAddShop(v => !v)
+                }}
+                className="text-xs text-primary-600 hover:text-primary-800 mt-1 underline"
+              >
+                {showAddShop ? 'Cancel' : '+ Add new shop'}
+              </button>
+              {showAddShop && (
+                <div className="mt-2 p-3 bg-primary-50 border border-primary-200 rounded-lg space-y-2">
+                  <p className="text-xs font-semibold text-primary-700">New Shop</p>
+                  <input
+                    type="text" placeholder="Shop name *" value={newShopName}
+                    onChange={e => setNewShopName(e.target.value)}
+                    className="field-input text-xs"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text" placeholder="City" value={newShopCity}
+                      onChange={e => setNewShopCity(e.target.value)}
+                      className="field-input text-xs"
+                    />
+                    <input
+                      type="text" placeholder="State" value={newShopState}
+                      onChange={e => setNewShopState(e.target.value)}
+                      className="field-input text-xs"
+                    />
+                  </div>
+                  <button
+                    type="button" onClick={handleAddShop} disabled={!newShopName.trim() || addShopBusy}
+                    className="btn-primary w-full text-xs py-1.5 disabled:opacity-40"
+                  >
+                    {addShopBusy ? 'Saving…' : 'Save Shop & Select'}
+                  </button>
+                </div>
+              )}
+              {parsedState?.visit?.shop_name && !watch('shop_id') && !showAddShop && (
                 <p className="text-xs text-amber-600 mt-0.5">
-                  AI suggested: <strong>{parsedState.visit.shop_name}</strong> — select above or add to shops first.
+                  AI suggested: <strong>{parsedState.visit.shop_name}</strong> — select above or click "+ Add new shop".
                 </p>
               )}
             </div>

@@ -17,7 +17,7 @@ export default function Sidebar() {
   const { profile, signOut } = useAuth()
 
   return (
-    <aside className="hidden lg:flex flex-col w-56 min-h-screen bg-primary-900 text-white">
+    <aside className="hidden lg:flex flex-col w-56 h-screen sticky top-0 bg-primary-900 text-white overflow-y-auto">
       {/* Brand */}
       <div className="px-5 py-5 border-b border-primary-800">
         <div className="flex items-center gap-2">

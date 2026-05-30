@@ -4,20 +4,12 @@
 -- Replaces scalar last_done_* columns on maintenance_schedule with a proper
 -- many-to-many join to service_records.
 --
--- Schema discoveries (from 260530 Schema.sql):
---   • maintenance_schedule has NO category column → add it here
---   • service_records has NO mileage_at_service → mileage lives in mileage_log
---     linked via mileage_log.service_visit_id = service_records.visit_id
---
--- Run this file in full first (all sections except the DROP block at the end).
--- Verify data with the queries in the comment at the bottom, then run the
--- DROP block separately.
+-- Run Step 1 alone first, then Step 2 (the rest of this file).
 -- ═════════════════════════════════════════════════════════════════════════════
 
 
 -- ── 1. Add category column to maintenance_schedule ────────────────────────────
--- Needed for the AddMaintenanceItem form and for future fuzzy-matching.
--- Using the same service_category enum already on service_records.
+-- Run this ALONE first, then run the rest of the file.
 
 ALTER TABLE maintenance_schedule
   ADD COLUMN IF NOT EXISTS category service_category;
@@ -44,7 +36,6 @@ CREATE INDEX IF NOT EXISTS idx_mf_service_record
 
 
 -- ── 3. Migrate explicit last_done_service_record_id links ─────────────────────
--- These are the safest links — already confirmed by hand.
 
 INSERT INTO maintenance_fulfillments (maintenance_schedule_id, service_record_id, notes)
 SELECT
@@ -57,11 +48,6 @@ ON CONFLICT (maintenance_schedule_id, service_record_id) DO NOTHING;
 
 
 -- ── 4. Copy last_done_date → baseline_date for unmatched items ────────────────
--- For items that have a last_done_date but no fulfillment link, preserve the
--- date as baseline_date so next_due_date can still be computed.
--- Only fills baseline_date when it is currently NULL.
--- Downgrades confidence from 'confirmed' → 'estimated' since it's now just a
--- date with no backing service record.
 
 UPDATE maintenance_schedule ms
 SET
@@ -79,14 +65,6 @@ WHERE ms.last_done_date IS NOT NULL
 
 
 -- ── 5. Recreate maintenance_due_soon view ─────────────────────────────────────
---
--- last_done_date    → most recent service_record.service_date via fulfillments,
---                     falls back to baseline_date if no fulfillment
--- last_done_mileage → most recent mileage_log entry for the service_visit
---                     that the service_record belongs to
---                     (service_records.visit_id → mileage_log.service_visit_id)
--- fulfillment_count → total fulfillments (history depth indicator)
--- last_done_service_record_id → id of most recent fulfillment's service_record
 
 DROP VIEW IF EXISTS maintenance_due_soon;
 
@@ -120,22 +98,18 @@ SELECT
   ms.created_at,
   ms.updated_at,
 
-  -- Last done: fulfillment-derived or baseline fallback
   COALESCE(lf.last_done_date,    ms.baseline_date) AS last_done_date,
   lf.last_done_mileage                              AS last_done_mileage,
   lf.service_record_id                              AS last_done_service_record_id,
   COALESCE(lf.fulfillment_count, 0)                 AS fulfillment_count,
 
-  -- Vehicle info
   v.name     AS vehicle_name,
   v.year,
   v.make,
   v.model,
 
-  -- Current mileage (for due-mileage calculation)
   vcm.current_mileage,
 
-  -- Next due date
   CASE
     WHEN lf.last_done_date IS NOT NULL AND ms.interval_months IS NOT NULL
       THEN lf.last_done_date + (ms.interval_months || ' months')::interval
@@ -144,7 +118,6 @@ SELECT
     ELSE NULL
   END AS next_due_date,
 
-  -- Confidence alias for backwards compatibility
   ms.knowledge_status AS confidence
 
 FROM maintenance_schedule ms
@@ -155,10 +128,10 @@ LEFT JOIN latest_fulfillment lf  ON lf.maintenance_schedule_id = ms.id;
 
 
 -- ═════════════════════════════════════════════════════════════════════════════
--- VERIFICATION QUERIES — run these after the above to check results
+-- VERIFICATION QUERIES — run after the above to check results
 -- ═════════════════════════════════════════════════════════════════════════════
 --
--- 1. See which maintenance items got fulfillment links:
+-- 1. Which maintenance items got fulfillment links:
 --
 -- SELECT ms.service_item, v.name AS vehicle,
 --        mf.id IS NOT NULL AS has_fulfillment,
