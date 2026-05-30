@@ -203,6 +203,7 @@ function PartsTable({ parts }) {
 function ServiceHistoryTab({ vehicleId }) {
   const { data, isLoading } = useServiceHistory(vehicleId)
   const [expanded, setExpanded] = useState({})
+  const navigate = useNavigate()
 
   if (isLoading) return <Loading />
   if (!data?.length) return <Empty message="No service records yet." />
@@ -220,9 +221,18 @@ function ServiceHistoryTab({ vehicleId }) {
                 {r.service_visits?.work_order ? ` · WO ${r.service_visits.work_order}` : ''}
               </p>
             </div>
-            <span className={`${CAT_COLORS[r.category] || 'badge-slate'} capitalize flex-shrink-0`}>
-              {r.category?.replace(/_/g, ' ')}
-            </span>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <span className={`${CAT_COLORS[r.category] || 'badge-slate'} capitalize`}>
+                {r.category?.replace(/_/g, ' ')}
+              </span>
+              <button
+                onClick={() => navigate(`/vehicles/${vehicleId}/service/${r.id}/edit`)}
+                className="text-slate-400 hover:text-primary-600 p-0.5"
+                title="Edit service record"
+              >
+                <Pencil size={12} />
+              </button>
+            </div>
           </div>
 
           {r.description && (
@@ -258,76 +268,104 @@ function ServiceHistoryTab({ vehicleId }) {
 function ServiceVisitsTab({ vehicleId }) {
   const { data, isLoading } = useServiceVisits(vehicleId)
   const [expanded, setExpanded] = useState({})
+  const navigate = useNavigate()
 
   if (isLoading) return <Loading />
   if (!data?.length) return <Empty message="No service visits recorded." />
 
-  return (
-    <div className="space-y-3">
-      {data.map(visit => {
-        const isOpen = expanded[visit.id]
-        const records = visit.service_records || []
-        return (
-          <div key={visit.id} className="card">
-            {/* Visit header */}
-            <button
-              className="w-full text-left"
-              onClick={() => setExpanded(p => ({ ...p, [visit.id]: !p[visit.id] }))}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="font-semibold text-slate-800 text-sm">
-                    {visit.visit_date ? format(parseISO(visit.visit_date), 'MMM d, yyyy') : '—'}
-                    {visit.shops?.name ? ` — ${visit.shops.name}` : ''}
-                  </p>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    {records.length} service item{records.length !== 1 ? 's' : ''}
-                    {visit.work_order ? ` · WO ${visit.work_order}` : ''}
-                    {visit.invoice_number ? ` · Inv ${visit.invoice_number}` : ''}
-                    {visit.total_cost != null ? ` · $${Number(visit.total_cost).toLocaleString()}` : ''}
-                  </p>
-                </div>
-                <span className="text-slate-400 text-lg leading-none mt-0.5">
-                  {isOpen ? '▲' : '▼'}
-                </span>
-              </div>
-            </button>
+  // Group visits by year, descending
+  const byYear = (data || []).reduce((acc, visit) => {
+    const year = visit.visit_date ? visit.visit_date.slice(0, 4) : 'Unknown'
+    if (!acc[year]) acc[year] = []
+    acc[year].push(visit)
+    return acc
+  }, {})
+  const years = Object.keys(byYear).sort((a, b) => b.localeCompare(a))
 
-            {/* Expanded records */}
-            {isOpen && (
-              <div className="mt-3 space-y-3 border-t border-slate-100 pt-3">
-                {records.length === 0 && (
-                  <p className="text-xs text-slate-400">No line items linked to this visit.</p>
-                )}
-                {records.map(r => (
-                  <div key={r.id} className="bg-slate-50 rounded-lg p-3">
-                    <div className="flex items-start justify-between gap-2 mb-1">
-                      <p className="text-sm font-medium text-slate-800">{r.title}</p>
-                      <span className={`${CAT_COLORS[r.category] || 'badge-slate'} capitalize flex-shrink-0`}>
-                        {r.category?.replace(/_/g, ' ')}
-                      </span>
-                    </div>
-                    {r.description && (
-                      <p className="text-xs text-slate-600 mb-1 leading-relaxed">{r.description}</p>
-                    )}
-                    <div className="flex gap-3 text-xs text-slate-500">
-                      {r.labor_cost != null && <span>Labor: ${Number(r.labor_cost).toLocaleString()}</span>}
-                      {r.parts_cost != null && <span>Parts: ${Number(r.parts_cost).toLocaleString()}</span>}
-                      {r.total_cost != null && (
-                        <span className="font-medium text-slate-700">Total: ${Number(r.total_cost).toLocaleString()}</span>
-                      )}
-                    </div>
-                    <PartsTable parts={r.parts} />
+  const VisitCard = ({ visit }) => {
+    const isOpen  = expanded[visit.id]
+    const records = visit.service_records || []
+    return (
+      <div className="card">
+        {/* Visit header */}
+        <button
+          className="w-full text-left"
+          onClick={() => setExpanded(p => ({ ...p, [visit.id]: !p[visit.id] }))}
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="font-semibold text-slate-800 text-sm">
+                {visit.visit_date ? format(parseISO(visit.visit_date), 'MMM d, yyyy') : '—'}
+                {visit.shops?.name ? ` — ${visit.shops.name}` : ''}
+              </p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {records.length} service item{records.length !== 1 ? 's' : ''}
+                {visit.work_order ? ` · WO ${visit.work_order}` : ''}
+                {visit.invoice_number ? ` · Inv ${visit.invoice_number}` : ''}
+                {visit.total_cost != null ? ` · $${Number(visit.total_cost).toLocaleString()}` : ''}
+              </p>
+            </div>
+            <span className="text-slate-400 text-lg leading-none mt-0.5">
+              {isOpen ? '▲' : '▼'}
+            </span>
+          </div>
+        </button>
+
+        {/* Expanded records */}
+        {isOpen && (
+          <div className="mt-3 space-y-3 border-t border-slate-100 pt-3">
+            {records.length === 0 && (
+              <p className="text-xs text-slate-400">No line items linked to this visit.</p>
+            )}
+            {records.map(r => (
+              <div key={r.id} className="bg-slate-50 rounded-lg p-3">
+                <div className="flex items-start justify-between gap-2 mb-1">
+                  <p className="text-sm font-medium text-slate-800">{r.title}</p>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <span className={`${CAT_COLORS[r.category] || 'badge-slate'} capitalize`}>
+                      {r.category?.replace(/_/g, ' ')}
+                    </span>
+                    <button
+                      onClick={e => { e.stopPropagation(); navigate(`/vehicles/${vehicleId}/service/${r.id}/edit`) }}
+                      className="text-slate-400 hover:text-primary-600 p-0.5"
+                      title="Edit service record"
+                    >
+                      <Pencil size={11} />
+                    </button>
                   </div>
-                ))}
-                {visit.notes && (
-                  <p className="text-xs text-slate-500 italic pt-1">{visit.notes}</p>
+                </div>
+                {r.description && (
+                  <p className="text-xs text-slate-600 mb-1 leading-relaxed">{r.description}</p>
                 )}
+                <div className="flex gap-3 text-xs text-slate-500">
+                  {r.labor_cost != null && <span>Labor: ${Number(r.labor_cost).toLocaleString()}</span>}
+                  {r.parts_cost != null && <span>Parts: ${Number(r.parts_cost).toLocaleString()}</span>}
+                  {r.total_cost != null && (
+                    <span className="font-medium text-slate-700">Total: ${Number(r.total_cost).toLocaleString()}</span>
+                  )}
+                </div>
+                <PartsTable parts={r.parts} />
               </div>
+            ))}
+            {visit.notes && (
+              <p className="text-xs text-slate-500 italic pt-1">{visit.notes}</p>
             )}
           </div>
-        )
-      })}
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      {years.map(year => (
+        <div key={year}>
+          <h3 className="card-header">{year}</h3>
+          <div className="space-y-3">
+            {byYear[year].map(visit => <VisitCard key={visit.id} visit={visit} />)}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
@@ -442,10 +480,35 @@ function matchesFilter(item, filter) {
   return true
 }
 
+function SortHeader({ label, col, sortCol, sortDir, onSort }) {
+  const active = sortCol === col
+  return (
+    <th
+      onClick={() => onSort(col)}
+      className="cursor-pointer select-none hover:bg-slate-100 transition-colors"
+      title={`Sort by ${label}`}
+    >
+      <span className="flex items-center gap-1">
+        {label}
+        <span className="text-slate-300">
+          {active ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ' ⇅'}
+        </span>
+      </span>
+    </th>
+  )
+}
+
 function MaintenanceTab({ vehicleId }) {
   const { data, isLoading } = useMaintenance(vehicleId)
   const navigate = useNavigate()
-  const [filter, setFilter] = useState('all')
+  const [filter,  setFilter]  = useState('all')
+  const [sortCol, setSortCol] = useState('priority')
+  const [sortDir, setSortDir] = useState('asc')
+
+  function handleSort(col) {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortCol(col); setSortDir('asc') }
+  }
 
   const today      = new Date()
   const soonCutoff = addDays(today, 60)
@@ -480,7 +543,26 @@ function MaintenanceTab({ vehicleId }) {
     unknown:  'text-slate-400',
   }
 
-  const filtered = (data || []).filter(r => matchesFilter(r, filter))
+  const PRIO_ORDER = { critical: 0, high: 1, medium: 2, low: 3 }
+
+  function sortedFiltered() {
+    const base = (data || []).filter(r => matchesFilter(r, filter))
+    return [...base].sort((a, b) => {
+      let cmp = 0
+      if (sortCol === 'service_item') {
+        cmp = (a.service_item || '').localeCompare(b.service_item || '')
+      } else if (sortCol === 'next_due_date') {
+        cmp = (a.next_due_date || '9999').localeCompare(b.next_due_date || '9999')
+      } else if (sortCol === 'last_done_date') {
+        cmp = (a.last_done_date || '').localeCompare(b.last_done_date || '')
+      } else { // priority (default)
+        cmp = (PRIO_ORDER[a.priority] ?? 2) - (PRIO_ORDER[b.priority] ?? 2)
+      }
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }
+
+  const filtered = sortedFiltered()
 
   return (
     <div className="space-y-2">
@@ -512,13 +594,13 @@ function MaintenanceTab({ vehicleId }) {
           <table className="data-table min-w-full">
             <thead>
               <tr>
-                <th>Item</th>
+                <SortHeader label="Item"      col="service_item"  sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
                 <th>Interval</th>
-                <th>Last Done</th>
-                <th>Due Date</th>
+                <SortHeader label="Last Done" col="last_done_date" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
+                <SortHeader label="Due Date"  col="next_due_date"  sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
                 <th>Due Mileage</th>
                 <th>Conf.</th>
-                <th>Pri.</th>
+                <SortHeader label="Pri."      col="priority"       sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
                 <th></th>
               </tr>
             </thead>
@@ -891,11 +973,11 @@ export default function VehicleDetail() {
         {/* Action buttons */}
         <div className="flex flex-wrap gap-2 mb-3">
           <Link
-            to={`/vehicles/${id}/add-service`}
+            to={`/vehicles/${id}/add-visit`}
             className="inline-flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-white
                        font-semibold text-sm px-3 py-1.5 rounded-lg transition-colors"
           >
-            <Plus size={14} /> Add Service
+            <Plus size={14} /> Log Visit
           </Link>
           <Link
             to={`/vehicles/${id}/upload-document`}

@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { format, parseISO, addMonths, isBefore, addDays } from 'date-fns'
+import { Pencil } from 'lucide-react'
 
 const FILTERS = [
   { key: 'all',         label: 'All' },
@@ -31,6 +32,7 @@ function rowMatchesFilter(row, filter) {
 
 export default function MaintenanceSchedulePage() {
   const [filter, setFilter] = useState('all')
+  const navigate = useNavigate()
 
   const { data, isLoading } = useQuery({
     queryKey: ['maintenance_due_soon_all'],
@@ -60,9 +62,22 @@ export default function MaintenanceSchedulePage() {
     ok:       'badge-green',
     unknown:  'badge-slate',
   }
+  const dueDateColors = {
+    overdue:  'text-red-600 font-semibold',
+    due_soon: 'text-amber-600 font-medium',
+    ok:       'text-green-700',
+    unknown:  'text-slate-400',
+  }
   const confColors = {
     confirmed: 'badge-green', estimated: 'badge-blue',
     assumed: 'badge-amber', unknown: 'badge-red',
+  }
+
+  function nextDueMileage(row) {
+    if (!row.interval_miles) return null
+    const base = row.last_done_mileage ?? null
+    if (base === null) return null
+    return base + row.interval_miles
   }
 
   const filtered = (data || []).filter(row => rowMatchesFilter(row, filter))
@@ -115,14 +130,17 @@ export default function MaintenanceSchedulePage() {
                   <tr>
                     <th>Item</th>
                     <th>Interval</th>
-                    <th>Next Due</th>
+                    <th>Next Due Date</th>
+                    <th>Due Mileage</th>
                     <th>Status</th>
                     <th>Confidence</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map(row => {
-                    const status = classify(row)
+                    const status  = classify(row)
+                    const dueMi   = nextDueMileage(row)
                     return (
                       <tr key={row.id}>
                         <td className="font-medium text-slate-800">{row.service_item}</td>
@@ -131,14 +149,29 @@ export default function MaintenanceSchedulePage() {
                           {row.interval_months && row.interval_miles ? ' / ' : ''}
                           {row.interval_miles ? `${row.interval_miles.toLocaleString()} mi` : ''}
                         </td>
-                        <td>
+                        <td className={`text-xs ${dueDateColors[status]}`}>
                           {row.next_due_date
                             ? format(parseISO(row.next_due_date), 'MMM yyyy')
                             : <span className="text-slate-400">—</span>
                           }
                         </td>
+                        <td className={`text-xs ${dueMi ? dueDateColors[status] : ''}`}>
+                          {dueMi
+                            ? `${dueMi.toLocaleString()} mi`
+                            : <span className="text-slate-400">—</span>
+                          }
+                        </td>
                         <td><span className={statusColors[status]}>{status.replace('_',' ')}</span></td>
                         <td><span className={confColors[row.knowledge_status] || 'badge-slate'}>{row.knowledge_status}</span></td>
+                        <td>
+                          <button
+                            onClick={() => navigate(`/vehicles/${vehicleId}/add-maintenance?edit=${row.id}`)}
+                            className="text-slate-400 hover:text-primary-600 p-1"
+                            title="Edit"
+                          >
+                            <Pencil size={12} />
+                          </button>
+                        </td>
                       </tr>
                     )
                   })}

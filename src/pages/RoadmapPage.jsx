@@ -5,8 +5,25 @@ import { supabase } from '@/lib/supabase'
 import {
   Plus, Pencil, ChevronDown, ChevronRight,
   CheckCircle2, Circle, AlertCircle, Clock, XCircle, ThumbsUp,
-  MinusCircle, ArrowDownCircle
+  MinusCircle, ArrowDownCircle, Download
 } from 'lucide-react'
+
+function exportRoadmapJSON(items) {
+  const out = {
+    exported_at: new Date().toISOString(),
+    count: items.length,
+    items,
+  }
+  const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href     = url
+  a.download = 'roadmap_export.json'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
 
 // ── Status config ─────────────────────────────────────────────────────────────
 const STATUS = {
@@ -277,13 +294,23 @@ export default function RoadmapPage() {
               Feature requests, bugs, and questions — tracked as they're built
             </p>
           </div>
-          <button
-            onClick={() => navigate('/roadmap/new')}
-            className="flex items-center gap-1.5 bg-primary-700 hover:bg-primary-600
-                       text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
-          >
-            <Plus size={14} /> Add Item
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => exportRoadmapJSON(allItems)}
+              title="Download roadmap_export.json"
+              className="flex items-center gap-1.5 bg-primary-800 hover:bg-primary-700
+                         text-primary-200 text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <Download size={14} /> Export
+            </button>
+            <button
+              onClick={() => navigate('/roadmap/new')}
+              className="flex items-center gap-1.5 bg-primary-700 hover:bg-primary-600
+                         text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <Plus size={14} /> Add Item
+            </button>
+          </div>
         </div>
 
         {/* Filter chips */}

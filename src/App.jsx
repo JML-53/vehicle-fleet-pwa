@@ -20,6 +20,8 @@ import MaintenanceSchedulePage from '@/pages/MaintenanceSchedulePage'
 import DocumentsPage from '@/pages/DocumentsPage'
 import RoadmapPage from '@/pages/RoadmapPage'
 import AddEditRoadmapItem from '@/pages/AddEditRoadmapItem'
+import AddEditServiceRecord from '@/pages/AddEditServiceRecord'
+import AddEditServiceVisit from '@/pages/AddEditServiceVisit'
 
 function RequireAuth({ children }) {
   const { session, loading } = useAuth()
@@ -57,15 +59,18 @@ export default function App() {
         <Route path="vehicles/:id/edit" element={<AddEditVehicle />} />
 
         {/* Per-vehicle forms */}
-        <Route path="vehicles/:id/add-service"      element={<AddServiceRecord />} />
-        <Route path="vehicles/:id/add-pending"       element={<AddPendingWork />} />
-        <Route path="vehicles/:id/add-maintenance"   element={<AddMaintenanceItem />} />
-        <Route path="vehicles/:id/upload-document"   element={<UploadDocument />} />
-        <Route path="vehicles/:id/add-note"          element={<AddEditNote />} />
-        <Route path="vehicles/:id/add-spec"          element={<AddEditSpec />} />
-        <Route path="vehicles/:id/add-diagnostic"    element={<AddEditDiagnostic />} />
-        <Route path="vehicles/:id/add-mod"           element={<AddEditMod />} />
-        <Route path="vehicles/:id/add-registration"  element={<AddEditRegistration />} />
+        <Route path="vehicles/:id/add-service"           element={<AddServiceRecord />} />
+        <Route path="vehicles/:id/add-visit"             element={<AddEditServiceVisit />} />
+        <Route path="vehicles/:id/visits/:visitId/edit"  element={<AddEditServiceVisit />} />
+        <Route path="vehicles/:id/service/:recordId/edit" element={<AddEditServiceRecord />} />
+        <Route path="vehicles/:id/add-pending"           element={<AddPendingWork />} />
+        <Route path="vehicles/:id/add-maintenance"       element={<AddMaintenanceItem />} />
+        <Route path="vehicles/:id/upload-document"       element={<UploadDocument />} />
+        <Route path="vehicles/:id/add-note"              element={<AddEditNote />} />
+        <Route path="vehicles/:id/add-spec"              element={<AddEditSpec />} />
+        <Route path="vehicles/:id/add-diagnostic"        element={<AddEditDiagnostic />} />
+        <Route path="vehicles/:id/add-mod"               element={<AddEditMod />} />
+        <Route path="vehicles/:id/add-registration"      element={<AddEditRegistration />} />
 
         {/* Fleet-wide views */}
         <Route path="pending"            element={<PendingWorkPage />} />
