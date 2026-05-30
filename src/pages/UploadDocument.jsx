@@ -153,7 +153,17 @@ export default function UploadDocument() {
         body: { documentId: uploadedDoc.id, vehicleName },
       })
 
-      if (error) throw new Error(error.message || 'Edge Function error')
+      // Supabase wraps non-2xx responses as an error with a generic message.
+      // Read the actual JSON body to surface the real error from the function.
+      if (error) {
+        let detail = error.message || 'Edge Function error'
+        try {
+          const body = await error.context?.json?.()
+          if (body?.error) detail = body.error
+          if (body?.detail) detail += ' — ' + body.detail
+        } catch { /* ignore */ }
+        throw new Error(detail)
+      }
       if (!data?.success) throw new Error(data?.error || 'Parse failed')
 
       // Navigate to the visit form pre-populated with parsed data + document ID

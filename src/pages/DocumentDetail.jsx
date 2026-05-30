@@ -138,8 +138,18 @@ export default function DocumentDetail() {
         body: { documentId: docId, vehicleName },
       })
 
-      if (error || !result?.success) {
-        setAnalyzeErr(result?.error || error?.message || 'Analysis failed.')
+      if (error) {
+        let detail = error.message || 'Edge Function error'
+        try {
+          const body = await error.context?.json?.()
+          if (body?.error) detail = body.error
+          if (body?.detail) detail += ' — ' + body.detail
+        } catch { /* ignore */ }
+        setAnalyzeErr(detail)
+        return
+      }
+      if (!result?.success) {
+        setAnalyzeErr(result?.error || 'Analysis failed.')
         return
       }
 
