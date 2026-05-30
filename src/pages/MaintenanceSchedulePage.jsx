@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { format, parseISO, addMonths, isBefore, addDays } from 'date-fns'
-import { Pencil } from 'lucide-react'
+import { Pencil, Link2 } from 'lucide-react'
 
 const FILTERS = [
   { key: 'all',         label: 'All' },
@@ -223,13 +223,25 @@ export default function MaintenanceSchedulePage() {
                         <td><span className={statusColors[status]}>{status.replace('_',' ')}</span></td>
                         <td><span className={confColors[row.knowledge_status] || 'badge-slate'}>{row.knowledge_status}</span></td>
                         <td>
-                          <button
-                            onClick={() => navigate(`/vehicles/${vehicleId}/add-maintenance?edit=${row.id}`)}
-                            className="text-slate-400 hover:text-primary-600 p-1"
-                            title="Edit"
-                          >
-                            <Pencil size={12} />
-                          </button>
+                          <div className="flex items-center gap-0.5">
+                            <button
+                              onClick={() => navigate(`/vehicles/${vehicleId}/add-maintenance?edit=${row.id}`)}
+                              className="text-slate-400 hover:text-primary-600 p-1"
+                              title="Edit"
+                            >
+                              <Pencil size={12} />
+                            </button>
+                            {row.last_done_service_record_id && (
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/vehicles/${vehicleId}/service/${row.last_done_service_record_id}/edit`)}
+                                className="text-primary-400 hover:text-primary-700 p-1"
+                                title="View linked service record"
+                              >
+                                <Link2 size={12} />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     )

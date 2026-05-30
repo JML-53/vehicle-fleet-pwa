@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { format, parseISO, isBefore, addDays } from 'date-fns'
-import { Plus, ArrowLeft, Gauge, Pencil, Upload } from 'lucide-react'
+import { Plus, ArrowLeft, Gauge, Pencil, Upload, Link2 } from 'lucide-react'
 
 // ---- Data hooks ----
 
@@ -652,13 +652,25 @@ function MaintenanceTab({ vehicleId }) {
                     <td><span className={confColors[row.knowledge_status] || 'badge-slate'} style={{fontSize:'10px'}}>{row.knowledge_status}</span></td>
                     <td><span className={prioColors[row.priority] || 'badge-slate'} style={{fontSize:'10px'}}>{row.priority}</span></td>
                     <td>
-                      <button
-                        onClick={() => navigate(`/vehicles/${vehicleId}/add-maintenance?edit=${row.id}`)}
-                        className="text-slate-400 hover:text-primary-600 p-1"
-                        title="Edit"
-                      >
-                        <Pencil size={12} />
-                      </button>
+                      <div className="flex items-center gap-0.5">
+                        <button
+                          onClick={() => navigate(`/vehicles/${vehicleId}/add-maintenance?edit=${row.id}`)}
+                          className="text-slate-400 hover:text-primary-600 p-1"
+                          title="Edit"
+                        >
+                          <Pencil size={12} />
+                        </button>
+                        {row.last_done_service_record_id && (
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/vehicles/${vehicleId}/service/${row.last_done_service_record_id}/edit`)}
+                            className="text-primary-400 hover:text-primary-700 p-1"
+                            title="View linked service record"
+                          >
+                            <Link2 size={12} />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 )

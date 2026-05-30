@@ -1,8 +1,17 @@
 -- ─────────────────────────────────────────────────────────────────────────────
--- Recreate maintenance_due_soon view to pick up last_done_mileage column.
--- PostgreSQL freezes the column list for `ms.*` at view-creation time, so
--- the column added via ALTER TABLE was invisible until the view is recreated.
+-- Add last_done_service_record_id FK to maintenance_schedule
+-- This links a maintenance schedule item to the service_record that confirmed
+-- the maintenance was performed, enabling:
+--   • A click-through link from the maintenance table to the service record
+--   • Future auto-fulfillment when saving a service record (Enhancement 15)
 -- ─────────────────────────────────────────────────────────────────────────────
+
+ALTER TABLE maintenance_schedule
+  ADD COLUMN IF NOT EXISTS last_done_service_record_id uuid
+    REFERENCES service_records(id) ON DELETE SET NULL;
+
+-- DROP + CREATE required because CREATE OR REPLACE cannot reorder/rename existing columns
+-- (PostgreSQL raises 42P16 if the column list changes). Safe to drop — views store no data.
 DROP VIEW IF EXISTS maintenance_due_soon;
 
 CREATE VIEW maintenance_due_soon AS
@@ -13,7 +22,6 @@ SELECT
   v.make,
   v.model,
   vcm.current_mileage,
-  -- Compute next due date from confirmed date or baseline date
   CASE
     WHEN ms.last_done_date  IS NOT NULL AND ms.interval_months IS NOT NULL
       THEN ms.last_done_date + (ms.interval_months || ' months')::interval

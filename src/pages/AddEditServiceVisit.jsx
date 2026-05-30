@@ -15,11 +15,11 @@
  * with data returned from the parse-document Edge Function.
  */
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm, useFieldArray, Controller } from 'react-hook-form'
 import { supabase } from '@/lib/supabase'
-import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronRight, Sparkles, X } from 'lucide-react'
 
 const SERVICE_CATEGORIES = [
   'oil_change','brakes','tires','suspension','electrical','ac_hvac','engine',
@@ -221,12 +221,45 @@ function RecordSection({ recIdx, register, control, remove, isOnly }) {
   )
 }
 
+/**
+ * Convert a parsed document record (from Edge Function) into a form record shape.
+ */
+function parsedRecordToForm(pr) {
+  return {
+    _id:         null,
+    title:       pr.title       || '',
+    category:    pr.category    || 'other',
+    description: pr.description || '',
+    labor_cost:  pr.labor_cost  != null ? String(pr.labor_cost)  : '',
+    parts_cost:  pr.parts_cost  != null ? String(pr.parts_cost)  : '',
+    total_cost:  pr.total_cost  != null ? String(pr.total_cost)  : '',
+    notes:       pr.notes       || '',
+    parts: (pr.parts || []).map(p => ({
+      _id:          null,
+      part_name:    p.part_name    || '',
+      part_number:  p.part_number  || '',
+      manufacturer: p.manufacturer || '',
+      vendor:       p.vendor       || '',
+      order_number: '',
+      quantity:     p.quantity     != null ? String(p.quantity) : '1',
+      unit_cost:    p.unit_cost    != null ? String(p.unit_cost)    : '',
+      total_cost:   p.total_cost   != null ? String(p.total_cost)   : '',
+    })),
+  }
+}
+
 export default function AddEditServiceVisit() {
   const { id: vehicleId, visitId } = useParams()
   const navigate   = useNavigate()
+  const location   = useLocation()
   const qc         = useQueryClient()
   const isEditing  = !!visitId
   const [serverError, setServerError] = useState('')
+
+  // State passed from UploadDocument after AI parse
+  const parsedState   = location.state?.parsed      || null   // { visit, records }
+  const parsedDocId   = location.state?.documentId  || null
+  const [parsedBanner, setParsedBanner] = useState(!!parsedState)
 
   const { data: shops } = useShops()
 
@@ -270,6 +303,44 @@ export default function AddEditServiceVisit() {
     control,
     name: 'records',
   })
+
+  // Pre-populate from AI parse result (add-visit mode only)
+  useEffect(() => {
+    if (!parsedState || isEditing) return
+
+    const v = parsedState.visit || {}
+
+    // Try to match shop name to an existing shop record
+    let matchedShopId = ''
+    if (v.shop_name && shops) {
+      const normalized = v.shop_name.toLowerCase().trim()
+      const match = shops.find(s => s.name.toLowerCase().includes(normalized) ||
+                                    normalized.includes(s.name.toLowerCase()))
+      if (match) matchedShopId = match.id
+    }
+
+    // Extract mileage from notes if present (e.g. "Mileage: 89,940")
+    let mileageStr = ''
+    if (v.notes) {
+      const m = v.notes.match(/mileage[:\s]+([0-9,]+)/i)
+      if (m) mileageStr = m[1].replace(/,/g, '')
+    }
+
+    const parsedRecords = (parsedState.records || []).map(parsedRecordToForm)
+
+    reset({
+      visit_date:     v.visit_date     || new Date().toISOString().split('T')[0],
+      shop_id:        matchedShopId,
+      visit_type:     'shop',
+      work_order:     v.work_order     || '',
+      invoice_number: v.invoice_number || '',
+      technician:     v.technician     || '',
+      mileage:        mileageStr,
+      total_cost:     v.total_cost     != null ? String(v.total_cost) : '',
+      notes:          v.notes          || '',
+      records:        parsedRecords.length > 0 ? parsedRecords : [EMPTY_RECORD()],
+    })
+  }, [parsedState, shops]) // eslint-disable-line
 
   useEffect(() => {
     if (existing) {
@@ -452,6 +523,28 @@ export default function AddEditServiceVisit() {
         </p>
       </div>
 
+      {/* ── AI parse banner ── */}
+      {parsedBanner && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-3 flex items-start gap-3">
+          <Sparkles size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-amber-800">Form pre-filled from document</p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              Review all fields — the AI may have made mistakes. You can edit anything before saving.
+              {parsedDocId && (
+                <span className="ml-1 text-amber-500 font-mono text-[10px]">
+                  (doc&nbsp;{parsedDocId.slice(0, 8)}…)
+                </span>
+              )}
+            </p>
+          </div>
+          <button type="button" onClick={() => setParsedBanner(false)}
+            className="text-amber-400 hover:text-amber-600 flex-shrink-0">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit(d => { setServerError(''); mutation.mutate(d) })}
             className="p-4 space-y-6 max-w-2xl mx-auto w-full">
 
@@ -484,6 +577,11 @@ export default function AddEditServiceVisit() {
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </select>
+              {parsedState?.visit?.shop_name && !watch('shop_id') && (
+                <p className="text-xs text-amber-600 mt-0.5">
+                  AI suggested: <strong>{parsedState.visit.shop_name}</strong> — select above or add to shops first.
+                </p>
+              )}
             </div>
             <div>
               <label className="field-label">Mileage at Visit</label>

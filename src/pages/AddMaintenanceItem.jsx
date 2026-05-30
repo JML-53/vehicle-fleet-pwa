@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Link2 } from 'lucide-react'
 
 export default function AddMaintenanceItem() {
   const { id: vehicleId } = useParams()
@@ -24,29 +24,70 @@ export default function AddMaintenanceItem() {
     enabled: isEditing,
   })
 
-  const { register, handleSubmit, reset, formState: { errors }, watch } = useForm({
+  // Load service records for this vehicle to allow linking
+  const { data: serviceRecords = [] } = useQuery({
+    queryKey: ['service_records_for_vehicle', vehicleId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('service_records')
+        .select('id, title, service_date, mileage_at_service, category')
+        .eq('vehicle_id', vehicleId)
+        .order('service_date', { ascending: false })
+        .limit(100)
+      if (error) throw error
+      return data
+    },
+  })
+
+  const { register, handleSubmit, reset, setValue, formState: { errors }, watch } = useForm({
     defaultValues: {
       knowledge_status: 'unknown',
       priority: 'medium',
+      last_done_service_record_id: '',
     },
   })
 
   useEffect(() => {
-    if (existing) reset(existing)
+    if (existing) {
+      reset({
+        ...existing,
+        last_done_service_record_id: existing.last_done_service_record_id || '',
+      })
+    }
   }, [existing, reset])
 
-  const knowledgeStatus = watch('knowledge_status')
+  const knowledgeStatus          = watch('knowledge_status')
+  const watchedLinkedRecordId    = watch('last_done_service_record_id')
+
+  // When user picks a service record link, auto-fill date + mileage
+  function handleLinkedRecordChange(e) {
+    const recId = e.target.value
+    setValue('last_done_service_record_id', recId)
+    if (recId) {
+      const rec = serviceRecords.find(r => r.id === recId)
+      if (rec) {
+        if (rec.service_date) {
+          setValue('last_done_date', rec.service_date)
+          setValue('knowledge_status', 'confirmed')
+        }
+        if (rec.mileage_at_service) {
+          setValue('last_done_mileage', rec.mileage_at_service)
+        }
+      }
+    }
+  }
 
   const mutation = useMutation({
     mutationFn: async (values) => {
       const clean = {
         ...values,
         vehicle_id: vehicleId,
-        interval_months:      values.interval_months      ? Number(values.interval_months)      : null,
-        interval_miles:       values.interval_miles       ? Number(values.interval_miles)       : null,
-        last_done_mileage:    values.last_done_mileage ? Number(values.last_done_mileage) : null,
-        last_done_date:       values.last_done_date || null,
-        baseline_date:        values.baseline_date  || null,
+        interval_months:             values.interval_months      ? Number(values.interval_months)      : null,
+        interval_miles:              values.interval_miles       ? Number(values.interval_miles)       : null,
+        last_done_mileage:           values.last_done_mileage    ? Number(values.last_done_mileage)    : null,
+        last_done_date:              values.last_done_date       || null,
+        baseline_date:               values.baseline_date        || null,
+        last_done_service_record_id: values.last_done_service_record_id || null,
       }
       if (isEditing) {
         const { vehicle_id, ...update } = clean
@@ -133,6 +174,31 @@ export default function AddMaintenanceItem() {
         {/* Last service */}
         <div className="card space-y-3">
           <h2 className="card-header">Last Service</h2>
+
+          {/* Service record link — auto-fills date + mileage */}
+          <div>
+            <label className="field-label flex items-center gap-1">
+              <Link2 size={11} className="text-primary-500" />
+              Link to Service Record
+              <span className="text-slate-400 font-normal text-xs ml-1">(auto-fills date & mileage)</span>
+            </label>
+            <select
+              value={watchedLinkedRecordId}
+              onChange={handleLinkedRecordChange}
+              className="field-select"
+            >
+              <option value="">— none —</option>
+              {serviceRecords.map(r => (
+                <option key={r.id} value={r.id}>
+                  {r.service_date} · {r.title}
+                  {r.mileage_at_service ? ` · ${r.mileage_at_service.toLocaleString()} mi` : ''}
+                </option>
+              ))}
+            </select>
+            {/* Hidden field to persist the value via react-hook-form */}
+            <input type="hidden" {...register('last_done_service_record_id')} />
+          </div>
+
           <div>
             <label className="field-label">Confidence Level</label>
             <select {...register('knowledge_status')} className="field-select">
