@@ -1,22 +1,29 @@
 -- ═════════════════════════════════════════════════════════════════════════════
--- Task 12: maintenance_fulfillments — replace scalar last_done_* columns with
--- a proper many-to-many join between maintenance_schedule and service_records.
+-- Task 12: maintenance_fulfillments
 --
--- What changes:
---   1. Create maintenance_fulfillments join table
---   2. Migrate existing data:
---        a. Match existing service_records to maintenance_schedule items by
---           vehicle + overlapping category + closest date
---        b. For items where last_done_service_record_id is already set, migrate
---           that link directly
---        c. For remaining items with last_done_date but no service record match,
---           copy last_done_date → baseline_date as the fallback
---   3. Recreate maintenance_due_soon view to derive last_done_* from the join
---   4. Drop the deprecated scalar columns from maintenance_schedule
+-- Replaces scalar last_done_* columns on maintenance_schedule with a proper
+-- many-to-many join to service_records.
+--
+-- Schema discoveries (from 260530 Schema.sql):
+--   • maintenance_schedule has NO category column → add it here
+--   • service_records has NO mileage_at_service → mileage lives in mileage_log
+--     linked via mileage_log.service_visit_id = service_records.visit_id
+--
+-- Run this file in full first (all sections except the DROP block at the end).
+-- Verify data with the queries in the comment at the bottom, then run the
+-- DROP block separately.
 -- ═════════════════════════════════════════════════════════════════════════════
 
 
--- ── 1. Create maintenance_fulfillments ────────────────────────────────────────
+-- ── 1. Add category column to maintenance_schedule ────────────────────────────
+-- Needed for the AddMaintenanceItem form and for future fuzzy-matching.
+-- Using the same service_category enum already on service_records.
+
+ALTER TABLE maintenance_schedule
+  ADD COLUMN IF NOT EXISTS category service_category;
+
+
+-- ── 2. Create maintenance_fulfillments ────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS maintenance_fulfillments (
   id                       uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -27,7 +34,6 @@ CREATE TABLE IF NOT EXISTS maintenance_fulfillments (
   notes                    text,
   created_at               timestamptz NOT NULL DEFAULT now(),
 
-  -- Prevent duplicate links for the same pair
   UNIQUE (maintenance_schedule_id, service_record_id)
 );
 
@@ -37,11 +43,8 @@ CREATE INDEX IF NOT EXISTS idx_mf_service_record
   ON maintenance_fulfillments(service_record_id);
 
 
--- ── 2a. Migrate explicit last_done_service_record_id links ────────────────────
---
--- These are the cleanest: a direct FK already exists on maintenance_schedule.
--- Insert them into maintenance_fulfillments first, before we try fuzzy matching,
--- so the UNIQUE constraint prevents duplicates during the fuzzy pass.
+-- ── 3. Migrate explicit last_done_service_record_id links ─────────────────────
+-- These are the safest links — already confirmed by hand.
 
 INSERT INTO maintenance_fulfillments (maintenance_schedule_id, service_record_id, notes)
 SELECT
@@ -53,98 +56,53 @@ WHERE ms.last_done_service_record_id IS NOT NULL
 ON CONFLICT (maintenance_schedule_id, service_record_id) DO NOTHING;
 
 
--- ── 2b. Fuzzy-match remaining maintenance items to service_records ────────────
---
--- Strategy: for each maintenance_schedule item that doesn't yet have a
--- fulfillment, find the best-matching service_record for the same vehicle
--- where the category and service_item text overlap and the date is within
--- a reasonable window of last_done_date or baseline_date.
---
--- Matching rules (all must be true):
---   • Same vehicle_id
---   • Category overlap (maintenance category → service_record category)
---   • Date of service_record is within 60 days of last_done_date/baseline_date
---   • Only the closest match (by absolute date diff) is taken
---
--- Category mapping between maintenance_schedule categories and service_record
--- categories (both use the same enum values in our schema, so direct match).
-
-INSERT INTO maintenance_fulfillments (maintenance_schedule_id, service_record_id, notes)
-SELECT DISTINCT ON (ms.id)
-  ms.id        AS maintenance_schedule_id,
-  sr.id        AS service_record_id,
-  'Auto-matched by category + date proximity (±60 days)'  AS notes
-FROM maintenance_schedule ms
-JOIN service_records sr
-  ON  sr.vehicle_id = ms.vehicle_id
-  -- Category must match
-  AND sr.category   = ms.category
-  -- service_record date must be within 60 days of our reference date
-  AND ABS(
-        EXTRACT(EPOCH FROM (
-          sr.service_date::date
-          - COALESCE(ms.last_done_date, ms.baseline_date)
-        )) / 86400.0
-      ) <= 60
--- Exclude items already covered by step 2a
-WHERE NOT EXISTS (
-  SELECT 1 FROM maintenance_fulfillments mf
-  WHERE mf.maintenance_schedule_id = ms.id
-)
--- Must have some reference date to match against
-AND COALESCE(ms.last_done_date, ms.baseline_date) IS NOT NULL
--- Pick the closest match by date
-ORDER BY ms.id,
-         ABS(EXTRACT(EPOCH FROM (
-           sr.service_date::date
-           - COALESCE(ms.last_done_date, ms.baseline_date)
-         )))
-ON CONFLICT (maintenance_schedule_id, service_record_id) DO NOTHING;
-
-
--- ── 2c. Copy last_done_date → baseline_date for unmatched items ───────────────
---
--- For items that still have last_done_date but couldn't be matched to a
--- service_record, preserve the date as baseline_date so the view can still
--- compute a next_due_date. Only overwrite baseline_date if it is currently NULL.
+-- ── 4. Copy last_done_date → baseline_date for unmatched items ────────────────
+-- For items that have a last_done_date but no fulfillment link, preserve the
+-- date as baseline_date so next_due_date can still be computed.
+-- Only fills baseline_date when it is currently NULL.
+-- Downgrades confidence from 'confirmed' → 'estimated' since it's now just a
+-- date with no backing service record.
 
 UPDATE maintenance_schedule ms
-SET    baseline_date    = ms.last_done_date,
-       knowledge_status = CASE
-                            WHEN ms.knowledge_status = 'confirmed' THEN 'estimated'
-                            ELSE ms.knowledge_status
-                          END
-WHERE  ms.last_done_date IS NOT NULL
-AND    ms.baseline_date  IS NULL
-AND    NOT EXISTS (
-         SELECT 1 FROM maintenance_fulfillments mf
-         WHERE mf.maintenance_schedule_id = ms.id
-       );
+SET
+  baseline_date    = ms.last_done_date,
+  knowledge_status = CASE
+                       WHEN ms.knowledge_status = 'confirmed' THEN 'estimated'
+                       ELSE ms.knowledge_status
+                     END
+WHERE ms.last_done_date IS NOT NULL
+  AND ms.baseline_date  IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM maintenance_fulfillments mf
+    WHERE mf.maintenance_schedule_id = ms.id
+  );
 
 
--- ── 3. Recreate maintenance_due_soon view ─────────────────────────────────────
+-- ── 5. Recreate maintenance_due_soon view ─────────────────────────────────────
 --
 -- last_done_date    → most recent service_record.service_date via fulfillments,
---                     fallback to baseline_date
--- last_done_mileage → most recent service_record.mileage_at_service via
---                     fulfillments (no fallback — mileage is only from records)
--- fulfillment_count → total number of linked service records (history depth)
--- last_done_record_id → id of the most recent fulfillment's service_record
---                       (for UI link-through)
+--                     falls back to baseline_date if no fulfillment
+-- last_done_mileage → most recent mileage_log entry for the service_visit
+--                     that the service_record belongs to
+--                     (service_records.visit_id → mileage_log.service_visit_id)
+-- fulfillment_count → total fulfillments (history depth indicator)
+-- last_done_service_record_id → id of most recent fulfillment's service_record
 
 DROP VIEW IF EXISTS maintenance_due_soon;
 
 CREATE VIEW maintenance_due_soon AS
 WITH latest_fulfillment AS (
-  -- For each maintenance_schedule item, find the most recent linked service_record
   SELECT DISTINCT ON (mf.maintenance_schedule_id)
     mf.maintenance_schedule_id,
     sr.id              AS service_record_id,
     sr.service_date    AS last_done_date,
-    sr.mileage_at_service AS last_done_mileage,
+    ml.mileage         AS last_done_mileage,
     COUNT(*) OVER (PARTITION BY mf.maintenance_schedule_id) AS fulfillment_count
   FROM maintenance_fulfillments mf
-  JOIN service_records sr ON sr.id = mf.service_record_id
+  JOIN service_records sr
+    ON sr.id = mf.service_record_id
+  LEFT JOIN mileage_log ml
+    ON ml.service_visit_id = sr.visit_id
   ORDER BY mf.maintenance_schedule_id, sr.service_date DESC NULLS LAST
 )
 SELECT
@@ -158,14 +116,15 @@ SELECT
   ms.notes,
   ms.knowledge_status,
   ms.baseline_date,
+  ms.baseline_basis,
   ms.created_at,
   ms.updated_at,
 
-  -- Last done sourced from most recent fulfillment, or baseline_date fallback
-  COALESCE(lf.last_done_date,    ms.baseline_date)  AS last_done_date,
-  lf.last_done_mileage                               AS last_done_mileage,
-  lf.service_record_id                               AS last_done_service_record_id,
-  COALESCE(lf.fulfillment_count, 0)                  AS fulfillment_count,
+  -- Last done: fulfillment-derived or baseline fallback
+  COALESCE(lf.last_done_date,    ms.baseline_date) AS last_done_date,
+  lf.last_done_mileage                              AS last_done_mileage,
+  lf.service_record_id                              AS last_done_service_record_id,
+  COALESCE(lf.fulfillment_count, 0)                 AS fulfillment_count,
 
   -- Vehicle info
   v.name     AS vehicle_name,
@@ -173,10 +132,10 @@ SELECT
   v.make,
   v.model,
 
-  -- Current mileage for due-mileage calculation
+  -- Current mileage (for due-mileage calculation)
   vcm.current_mileage,
 
-  -- Next due date: prefer last_done_date (from fulfillment), then baseline_date
+  -- Next due date
   CASE
     WHEN lf.last_done_date IS NOT NULL AND ms.interval_months IS NOT NULL
       THEN lf.last_done_date + (ms.interval_months || ' months')::interval
@@ -185,30 +144,43 @@ SELECT
     ELSE NULL
   END AS next_due_date,
 
-  -- Confidence alias kept for backwards compatibility
+  -- Confidence alias for backwards compatibility
   ms.knowledge_status AS confidence
 
 FROM maintenance_schedule ms
-JOIN vehicles v            ON v.id          = ms.vehicle_id
+JOIN  vehicles v                 ON v.id           = ms.vehicle_id
 LEFT JOIN vehicle_current_mileage vcm
-                           ON vcm.vehicle_id = ms.vehicle_id
-LEFT JOIN latest_fulfillment lf
-                           ON lf.maintenance_schedule_id = ms.id;
+                                 ON vcm.vehicle_id  = ms.vehicle_id
+LEFT JOIN latest_fulfillment lf  ON lf.maintenance_schedule_id = ms.id;
 
 
--- ── 4. Drop deprecated columns from maintenance_schedule ──────────────────────
+-- ═════════════════════════════════════════════════════════════════════════════
+-- VERIFICATION QUERIES — run these after the above to check results
+-- ═════════════════════════════════════════════════════════════════════════════
 --
--- These are now derived from maintenance_fulfillments via the view.
--- Run these after confirming the view and UI are working correctly.
--- IMPORTANT: Review the migration output above first to ensure data was
--- migrated correctly before running this section.
+-- 1. See which maintenance items got fulfillment links:
 --
--- Uncomment and run separately once you've verified the view data looks right:
+-- SELECT ms.service_item, v.name AS vehicle,
+--        mf.id IS NOT NULL AS has_fulfillment,
+--        sr.service_date, sr.title, mf.notes AS match_method
+-- FROM maintenance_schedule ms
+-- JOIN vehicles v ON v.id = ms.vehicle_id
+-- LEFT JOIN maintenance_fulfillments mf ON mf.maintenance_schedule_id = ms.id
+-- LEFT JOIN service_records sr ON sr.id = mf.service_record_id
+-- ORDER BY v.name, ms.service_item;
+--
+-- 2. Check the view computes correctly:
+--
+-- SELECT vehicle_name, service_item, last_done_date, last_done_mileage,
+--        next_due_date, fulfillment_count, confidence
+-- FROM maintenance_due_soon
+-- ORDER BY vehicle_name, service_item;
+--
+-- ═════════════════════════════════════════════════════════════════════════════
+-- DROP BLOCK — run SEPARATELY after verifying data looks correct
+-- ═════════════════════════════════════════════════════════════════════════════
 --
 -- ALTER TABLE maintenance_schedule DROP COLUMN IF EXISTS last_done_date;
 -- ALTER TABLE maintenance_schedule DROP COLUMN IF EXISTS last_done_mileage;
 -- ALTER TABLE maintenance_schedule DROP COLUMN IF EXISTS last_done_service_record_id;
 -- ALTER TABLE maintenance_schedule DROP COLUMN IF EXISTS last_done_mileage_id;
---
--- Note: baseline_date and knowledge_status are KEPT — they serve as fallback
--- for items with estimated/assumed knowledge and no linked service record.

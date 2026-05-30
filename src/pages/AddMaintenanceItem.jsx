@@ -54,7 +54,7 @@ export default function AddMaintenanceItem() {
           id,
           service_record_id,
           notes,
-          service_records(id, title, service_date, mileage_at_service, category)
+          service_records(id, title, service_date, category)
         `)
         .eq('maintenance_schedule_id', itemId)
         .order('created_at', { ascending: false })
@@ -70,7 +70,7 @@ export default function AddMaintenanceItem() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('service_records')
-        .select('id, title, service_date, mileage_at_service, category')
+        .select('id, title, service_date, category')
         .eq('vehicle_id', vehicleId)
         .order('service_date', { ascending: false })
         .limit(200)
@@ -305,11 +305,6 @@ export default function AddMaintenanceItem() {
                         {rec?.service_date ? format(parseISO(rec.service_date), 'MMM d, yyyy') : '—'}
                         {rec?.title ? ` · ${rec.title}` : ''}
                       </p>
-                      {rec?.mileage_at_service && (
-                        <p className="text-xs text-slate-500">
-                          {Number(rec.mileage_at_service).toLocaleString()} mi
-                        </p>
-                      )}
                       {!f.id && (
                         <span className="text-[10px] text-amber-600 font-medium">unsaved</span>
                       )}
@@ -340,7 +335,6 @@ export default function AddMaintenanceItem() {
               {availableRecords.map(r => (
                 <option key={r.id} value={r.id}>
                   {r.service_date} · {r.title}
-                  {r.mileage_at_service ? ` · ${Number(r.mileage_at_service).toLocaleString()} mi` : ''}
                 </option>
               ))}
             </select>
