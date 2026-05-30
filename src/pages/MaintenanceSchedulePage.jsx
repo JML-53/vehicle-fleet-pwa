@@ -159,7 +159,7 @@ export default function MaintenanceSchedulePage() {
         </div>
       </div>
 
-      <div className="p-4 space-y-6 max-w-7xl mx-auto">
+      <div className="px-3 py-4 space-y-6 w-full">
         {isLoading && <p className="text-slate-400 text-sm animate-pulse">Loading…</p>}
 
         {Object.entries(grouped).map(([vehicleName, { vehicleId, rows }]) => (
