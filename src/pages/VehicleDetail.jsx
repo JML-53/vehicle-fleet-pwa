@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { format, parseISO, isBefore, addDays } from 'date-fns'
-import { Plus, ArrowLeft, Gauge, Pencil, Upload, Link2 } from 'lucide-react'
+import { Plus, ArrowLeft, Gauge, Pencil, Upload, Link2, ChevronDown, ChevronUp, ShieldCheck, AlertTriangle, Clock } from 'lucide-react'
 
 // ---- Data hooks ----
 
@@ -905,6 +905,129 @@ function RegistrationsTab({ vehicleId }) {
   )
 }
 
+// ---- Inspections ----
+
+const useInspections = id => useQuery({
+  queryKey: ['inspections', id],
+  queryFn: async () => {
+    const { data, error } = await supabase
+      .from('inspection_status')
+      .select('*')
+      .eq('vehicle_id', id)
+      .order('inspection_type')
+    if (error) throw error
+    return data
+  },
+  enabled: !!id,
+})
+
+const useInspectionHistory = inspectionId => useQuery({
+  queryKey: ['inspection_history', inspectionId],
+  queryFn: async () => {
+    const { data, error } = await supabase
+      .from('inspection_fulfillments')
+      .select('*')
+      .eq('inspection_id', inspectionId)
+      .order('inspection_date', { ascending: false })
+    if (error) throw error
+    return data
+  },
+  enabled: !!inspectionId,
+})
+
+function InspectionRow({ row }) {
+  const [expanded, setExpanded] = useState(false)
+  const { data: history } = useInspectionHistory(expanded ? row.id : null)
+
+  const status = row.expiry_status || 'unknown'
+  const statusConfig = {
+    current:  { label: 'Current',  badge: 'badge-green',  Icon: ShieldCheck,    text: 'text-green-700' },
+    due_soon: { label: 'Due Soon', badge: 'badge-amber',  Icon: Clock,          text: 'text-amber-700' },
+    expired:  { label: 'Expired',  badge: 'badge-red',    Icon: AlertTriangle,  text: 'text-red-700'   },
+    unknown:  { label: 'Unknown',  badge: 'badge-slate',  Icon: Clock,          text: 'text-slate-500' },
+  }[status]
+
+  const { Icon } = statusConfig
+
+  return (
+    <div className="card">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3 flex-1 min-w-0">
+          <Icon size={18} className={`mt-0.5 flex-shrink-0 ${statusConfig.text}`} />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-semibold text-slate-800 capitalize">
+                {row.inspection_type === 'safety' ? 'Safety Inspection' : 'Emissions Inspection'}
+              </span>
+              <span className={statusConfig.badge}>{statusConfig.label}</span>
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-xs text-slate-500">
+              {row.inspection_date && (
+                <span>Last: <span className="text-slate-700">{format(parseISO(row.inspection_date), 'MMM d, yyyy')}</span></span>
+              )}
+              {row.next_due_date && (
+                <span className={row.expiry_status === 'expired' ? 'text-red-600 font-medium' : row.expiry_status === 'due_soon' ? 'text-amber-600 font-medium' : ''}>
+                  {row.expiry_status === 'expired' ? 'Expired: ' : 'Next due: '}
+                  <span className="font-medium">{format(parseISO(row.next_due_date), 'MMM d, yyyy')}</span>
+                </span>
+              )}
+              {row.report_number && <span>Sticker: <span className="text-slate-700">{row.report_number}</span></span>}
+              {row.result && <span>Result: <span className="text-slate-700 capitalize">{row.result}</span></span>}
+              {row.mileage_at_inspection && <span>Mileage: <span className="text-slate-700">{Number(row.mileage_at_inspection).toLocaleString()}</span></span>}
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={() => setExpanded(e => !e)}
+          className="text-slate-400 hover:text-primary-600 p-1 flex-shrink-0"
+          title={expanded ? 'Hide history' : 'Show history'}
+        >
+          {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+        </button>
+      </div>
+
+      {/* History */}
+      {expanded && (
+        <div className="mt-3 pt-3 border-t border-slate-100">
+          <p className="text-xs font-medium text-slate-500 mb-2">Prior inspections</p>
+          {!history?.length && <p className="text-xs text-slate-400">No prior records.</p>}
+          {(history || []).map((h, i) => (
+            i === 0 ? null : // skip the most recent (already shown above)
+            <div key={h.id} className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-600 py-1 border-b border-slate-50 last:border-0">
+              <span className="font-medium">{format(parseISO(h.inspection_date), 'MMM d, yyyy')}</span>
+              {h.expiry_date && <span>Exp: {format(parseISO(h.expiry_date), 'MMM d, yyyy')}</span>}
+              {h.result && <span className="capitalize">{h.result}</span>}
+              {h.report_number && <span>#{h.report_number}</span>}
+              {h.mileage_at_inspection && <span>{Number(h.mileage_at_inspection).toLocaleString()} mi</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function InspectionsTab({ vehicleId }) {
+  const { data, isLoading } = useInspections(vehicleId)
+  const navigate = useNavigate()
+
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        <button
+          onClick={() => navigate(`/vehicles/${vehicleId}/add-inspection`)}
+          className="inline-flex items-center gap-1.5 btn-primary text-xs py-1.5 px-3"
+        >
+          <Plus size={13} /> Log Inspection
+        </button>
+      </div>
+      {isLoading && <Loading />}
+      {!isLoading && !data?.length && <Empty message="No inspection records for this vehicle." />}
+      {(data || []).map(row => <InspectionRow key={row.id} row={row} />)}
+    </div>
+  )
+}
+
 function Loading() {
   return <p className="text-slate-400 text-sm animate-pulse py-4">Loading…</p>
 }
@@ -916,15 +1039,16 @@ function Empty({ message }) {
 // ---- Main VehicleDetail ----
 
 const TABS = [
-  { id: 'service',     label: 'Service History' },
-  { id: 'visits',      label: 'Visits' },
-  { id: 'pending',     label: 'Pending Work' },
-  { id: 'maintenance', label: 'Maintenance' },
-  { id: 'mods',        label: 'Modifications' },
-  { id: 'notes',       label: 'Notes' },
-  { id: 'specs',       label: 'Specs' },
-  { id: 'diagnostic',  label: 'Diagnostics' },
-  { id: 'registrations', label: 'Registration' },
+  { id: 'service',      label: 'Service History' },
+  { id: 'visits',       label: 'Visits' },
+  { id: 'pending',      label: 'Pending Work' },
+  { id: 'maintenance',  label: 'Maintenance' },
+  { id: 'inspections',  label: 'Inspections' },
+  { id: 'mods',         label: 'Modifications' },
+  { id: 'notes',        label: 'Notes' },
+  { id: 'specs',        label: 'Specs' },
+  { id: 'diagnostic',   label: 'Diagnostics' },
+  { id: 'registrations',label: 'Registration' },
 ]
 
 export default function VehicleDetail() {
@@ -1049,6 +1173,7 @@ export default function VehicleDetail() {
         {tab === 'visits'        && <ServiceVisitsTab  vehicleId={id} />}
         {tab === 'pending'       && <PendingWorkTab    vehicleId={id} />}
         {tab === 'maintenance'   && <MaintenanceTab    vehicleId={id} />}
+        {tab === 'inspections'   && <InspectionsTab    vehicleId={id} />}
         {tab === 'mods'          && <ModsTab           vehicleId={id} />}
         {tab === 'notes'         && <NotesTab          vehicleId={id} />}
         {tab === 'specs'         && <SpecsTab          vehicleId={id} />}

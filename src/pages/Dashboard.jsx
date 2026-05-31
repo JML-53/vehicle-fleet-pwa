@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { format, parseISO, differenceInDays } from 'date-fns'
-import { AlertTriangle, CheckCircle, Clock, Car, Plus } from 'lucide-react'
+import { AlertTriangle, CheckCircle, Clock, Car, Plus, ShieldCheck } from 'lucide-react'
 
 // ---- Data hooks ----
 
@@ -70,39 +70,72 @@ function useRecentService() {
 
 // ---- Sub-components ----
 
-function InspectionAlert({ row }) {
+function InspectionCell({ row }) {
+  if (!row) return <td className="px-2 py-2 text-xs text-slate-300 text-center">—</td>
+
   const days = row.days_until_expiry
-  const isExpired  = row.expiry_status === 'expired'
-  const isDueSoon  = row.expiry_status === 'due_soon'
+  const status = row.expiry_status || 'unknown'
 
-  const colorClass = isExpired
-    ? 'border-red-300 bg-red-50'
-    : isDueSoon
-    ? 'border-amber-300 bg-amber-50'
-    : 'border-green-200 bg-green-50'
+  const cfg = {
+    current:  { text: 'text-green-700',  bg: 'bg-green-50',  Icon: ShieldCheck },
+    due_soon: { text: 'text-amber-700',  bg: 'bg-amber-50',  Icon: Clock },
+    expired:  { text: 'text-red-700',    bg: 'bg-red-50',    Icon: AlertTriangle },
+    unknown:  { text: 'text-slate-400',  bg: 'bg-slate-50',  Icon: Clock },
+  }[status]
 
-  const iconColor = isExpired ? 'text-red-500' : isDueSoon ? 'text-amber-500' : 'text-green-500'
+  const { Icon } = cfg
+  const dateStr = row.next_due_date ? format(parseISO(row.next_due_date), 'M/d/yy') : '—'
+  const subtext = status === 'expired'
+    ? `Exp ${Math.abs(days)}d ago`
+    : status === 'due_soon'
+    ? `Due in ${days}d`
+    : dateStr
 
   return (
-    <Link
-      to={`/vehicles/${row.vehicle_id}`}
-      className={`flex items-start gap-3 p-3 rounded-lg border ${colorClass} hover:opacity-80 transition-opacity`}
-    >
-      <AlertTriangle size={16} className={`mt-0.5 flex-shrink-0 ${iconColor}`} />
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-slate-800 truncate">
-          {row.vehicle_name} — {row.inspection_type === 'safety' ? 'Safety' : 'Emissions'}
-        </p>
-        <p className={`text-xs mt-0.5 ${isExpired ? 'text-red-600' : isDueSoon ? 'text-amber-600' : 'text-green-600'}`}>
-          {isExpired
-            ? `Expired ${Math.abs(days)} days ago`
-            : isDueSoon
-            ? `Due in ${days} days (${row.expiry_date ? format(parseISO(row.expiry_date), 'MMM d, yyyy') : '—'})`
-            : `Current — expires ${row.expiry_date ? format(parseISO(row.expiry_date), 'MMM d, yyyy') : '—'}`
-          }
-        </p>
+    <td className={`px-2 py-2 text-center ${cfg.bg}`}>
+      <div className="flex flex-col items-center gap-0.5">
+        <Icon size={13} className={cfg.text} />
+        <span className={`text-xs font-medium ${cfg.text}`}>{subtext}</span>
       </div>
-    </Link>
+    </td>
+  )
+}
+
+function InspectionGrid({ data, vehicles }) {
+  // Build a map: vehicle_id → { safety, emissions }
+  const byVehicle = {}
+  ;(data || []).forEach(row => {
+    if (!byVehicle[row.vehicle_id]) byVehicle[row.vehicle_id] = {}
+    byVehicle[row.vehicle_id][row.inspection_type] = row
+  })
+
+  const activeVehicles = (vehicles || []).filter(v => v.status === 'active')
+
+  return (
+    <div className="card overflow-x-auto p-0">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-slate-100">
+            <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">Vehicle</th>
+            <th className="px-2 py-2 text-center text-xs font-medium text-slate-500">Safety</th>
+            <th className="px-2 py-2 text-center text-xs font-medium text-slate-500">Emissions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {activeVehicles.map(v => (
+            <tr key={v.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
+              <td className="px-3 py-2">
+                <Link to={`/vehicles/${v.id}?tab=inspections`} className="text-xs font-medium text-slate-700 hover:text-primary-600">
+                  {v.name || `${v.year} ${v.make}`}
+                </Link>
+              </td>
+              <InspectionCell row={byVehicle[v.id]?.safety} />
+              <InspectionCell row={byVehicle[v.id]?.emissions} />
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 
@@ -212,7 +245,6 @@ export default function Dashboard() {
   const alertInspections = (inspections.data || []).filter(
     r => r.expiry_status === 'expired' || r.expiry_status === 'due_soon'
   )
-  const allCurrent = inspections.data?.length > 0 && alertInspections.length === 0
 
   return (
     <div className="flex flex-col gap-0">
@@ -231,35 +263,20 @@ export default function Dashboard() {
 
       <div className="p-4 space-y-5 max-w-3xl mx-auto w-full">
 
-        {/* Inspection alerts */}
+        {/* Inspection grid */}
         <section>
           <div className="flex items-center justify-between mb-2">
             <h2 className="card-header mb-0">Inspections</h2>
-            {allCurrent && (
+            {alertInspections.length === 0 && inspections.data?.length > 0 && (
               <span className="flex items-center gap-1 text-xs text-green-600">
                 <CheckCircle size={13} /> All current
               </span>
             )}
           </div>
-
-          {inspections.isLoading && (
-            <p className="text-sm text-slate-400 animate-pulse">Loading…</p>
-          )}
-
-          {alertInspections.length > 0 && (
-            <div className="space-y-2">
-              {alertInspections.map(r => (
-                <InspectionAlert key={r.id} row={r} />
-              ))}
-            </div>
-          )}
-
-          {allCurrent && (
-            <div className="flex items-center gap-3 p-3 rounded-lg border border-green-200 bg-green-50">
-              <CheckCircle size={16} className="text-green-500 flex-shrink-0" />
-              <p className="text-sm text-green-700">All inspections are current.</p>
-            </div>
-          )}
+          {inspections.isLoading
+            ? <p className="text-sm text-slate-400 animate-pulse">Loading…</p>
+            : <InspectionGrid data={inspections.data} vehicles={vehicles.data} />
+          }
         </section>
 
         {/* Fleet grid */}
