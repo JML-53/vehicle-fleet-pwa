@@ -937,6 +937,7 @@ const useInspectionHistory = inspectionId => useQuery({
 
 function InspectionRow({ row }) {
   const [expanded, setExpanded] = useState(false)
+  const navigate = useNavigate()
   const { data: history } = useInspectionHistory(expanded ? row.id : null)
 
   const status = row.expiry_status || 'unknown'

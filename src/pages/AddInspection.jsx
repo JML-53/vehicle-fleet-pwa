@@ -155,7 +155,7 @@ export default function AddInspection() {
             vehicle_id: vehicleId,
             shop_id:    values.shop_id || null,
             visit_date: values.inspection_date,
-            visit_type: 'inspection',
+            visit_type: 'shop',
             notes:      values.notes || null,
           })
           .select('id')
