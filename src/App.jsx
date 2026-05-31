@@ -23,6 +23,7 @@ import RoadmapPage from '@/pages/RoadmapPage'
 import AddEditRoadmapItem from '@/pages/AddEditRoadmapItem'
 import AddEditServiceRecord from '@/pages/AddEditServiceRecord'
 import AddEditServiceVisit from '@/pages/AddEditServiceVisit'
+import AddInspection from '@/pages/AddInspection'
 
 function RequireAuth({ children }) {
   const { session, loading } = useAuth()
@@ -72,6 +73,7 @@ export default function App() {
         <Route path="vehicles/:id/add-diagnostic"        element={<AddEditDiagnostic />} />
         <Route path="vehicles/:id/add-mod"               element={<AddEditMod />} />
         <Route path="vehicles/:id/add-registration"      element={<AddEditRegistration />} />
+        <Route path="vehicles/:id/add-inspection"        element={<AddInspection />} />
 
         {/* Fleet-wide views */}
         <Route path="pending"            element={<PendingWorkPage />} />

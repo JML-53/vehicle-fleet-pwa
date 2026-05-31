@@ -977,13 +977,22 @@ function InspectionRow({ row }) {
             </div>
           </div>
         </div>
-        <button
-          onClick={() => setExpanded(e => !e)}
-          className="text-slate-400 hover:text-primary-600 p-1 flex-shrink-0"
-          title={expanded ? 'Hide history' : 'Show history'}
-        >
-          {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-        </button>
+        <div className="flex items-center gap-0.5 flex-shrink-0">
+          <button
+            onClick={() => navigate(`/vehicles/${row.vehicle_id}/add-inspection?edit=${row.fulfillment_id}`)}
+            className="text-slate-400 hover:text-primary-600 p-1"
+            title="Edit latest inspection"
+          >
+            <Pencil size={13} />
+          </button>
+          <button
+            onClick={() => setExpanded(e => !e)}
+            className="text-slate-400 hover:text-primary-600 p-1"
+            title={expanded ? 'Hide history' : 'Show history'}
+          >
+            {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
+        </div>
       </div>
 
       {/* History */}
