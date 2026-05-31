@@ -64,18 +64,27 @@ const GROUP_META = {
 
 const GROUP_ORDER = ['enhancement', 'bug', 'question']
 
-// Filter chips — order per spec:
-//   All | New | Deferred | Not Impl. | Not Tested | Partial | Complete | Approved | Active
+// Filter chips — grouped with separators
+// type: 'filter' = status/meta filter; 'priority' = priority filter; 'sep' = visual divider
 const FILTERS = [
-  { key: 'all',             label: 'All' },
-  { key: 'new',             label: 'New' },
-  { key: 'deferred',        label: 'Deferred' },
-  { key: 'not_implemented', label: 'Not Impl.' },
-  { key: 'not_tested',      label: 'Not Tested' },
-  { key: 'partial',         label: 'Partial' },
-  { key: 'complete',        label: 'Complete' },
-  { key: 'approved',        label: 'Approved' },
-  { key: 'active',          label: 'Active' },   // all except approved + deferred
+  { key: 'all',             label: 'All',              type: 'filter' },
+  { key: 'active',          label: 'Active',           type: 'filter' },
+  { key: 'deferred',        label: 'Deferred',         type: 'filter' },
+  { key: 'sep1',            type: 'sep' },
+  { key: 'approved',        label: 'Approved',         type: 'filter' },
+  { key: 'sep2',            type: 'sep' },
+  { key: 'new',             label: 'New',              type: 'filter' },
+  { key: 'sep3',            type: 'sep' },
+  { key: 'ready_for_review',label: 'Ready to Review',  type: 'filter' },
+  { key: 'sep4',            type: 'sep' },
+  { key: 'partial',         label: 'Partial',          type: 'filter' },
+  { key: 'not_implemented', label: 'Not Implemented',  type: 'filter' },
+  { key: 'not_tested',      label: 'Not Tested',       type: 'filter' },
+  { key: 'sep5',            type: 'sep' },
+  { key: 'prio:high',       label: 'High',             type: 'priority' },
+  { key: 'prio:medium',     label: 'Medium',           type: 'priority' },
+  { key: 'prio:low',        label: 'Low',              type: 'priority' },
+  { key: 'prio:completed',  label: 'Complete',         type: 'priority' },
 ]
 
 // "Active" = everything that isn't approved or deferred
@@ -249,25 +258,22 @@ export default function RoadmapPage() {
   const topLevel  = allItems.filter(i => !i.parent_id)
   const childrenOf = id => allItems.filter(i => i.parent_id === id)
 
-  // Visibility — for 'active' filter match any active status
+  // Visibility — handle status filters, priority filters (prio:*), and active/all
   const visibleIds = new Set()
-  if (filter === 'all') {
-    allItems.forEach(i => visibleIds.add(i.id))
-  } else if (filter === 'active') {
-    allItems.forEach(i => {
-      if (ACTIVE_STATUSES.has(i.status)) {
-        visibleIds.add(i.id)
-        if (i.parent_id) visibleIds.add(i.parent_id)
-      }
-    })
-  } else {
-    allItems.forEach(i => {
-      if (i.status === filter) {
-        visibleIds.add(i.id)
-        if (i.parent_id) visibleIds.add(i.parent_id)
-      }
-    })
-  }
+  const isPrioFilter = filter.startsWith('prio:')
+  const prioValue    = isPrioFilter ? filter.slice(5) : null
+
+  allItems.forEach(i => {
+    let match = false
+    if (filter === 'all')           match = true
+    else if (filter === 'active')   match = ACTIVE_STATUSES.has(i.status)
+    else if (isPrioFilter)          match = i.priority === prioValue
+    else                            match = i.status === filter
+    if (match) {
+      visibleIds.add(i.id)
+      if (i.parent_id) visibleIds.add(i.parent_id)
+    }
+  })
 
   // Natural sort for item numbers: "1" < "2" < "5" < "10" < "11" < "11.1"
   function naturalItemNum(n) {
@@ -336,19 +342,28 @@ export default function RoadmapPage() {
 
         {/* Filter chips */}
         <div className="flex flex-wrap gap-2 mt-3">
-          {FILTERS.map(f => (
-            <button
-              key={f.key}
-              onClick={() => setFilter(f.key)}
-              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                filter === f.key
-                  ? 'bg-white text-primary-900'
-                  : 'bg-primary-800 text-primary-200 hover:bg-primary-700'
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
+          {FILTERS.map(f => {
+            if (f.type === 'sep') return (
+              <span key={f.key} className="self-center text-primary-600 select-none">|</span>
+            )
+            const active = filter === f.key
+            const isPrio = f.type === 'priority'
+            return (
+              <button
+                key={f.key}
+                onClick={() => setFilter(f.key)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  active
+                    ? 'bg-white text-primary-900'
+                    : isPrio
+                    ? 'bg-primary-700 text-primary-100 hover:bg-primary-600 ring-1 ring-primary-500'
+                    : 'bg-primary-800 text-primary-200 hover:bg-primary-700'
+                }`}
+              >
+                {f.label}
+              </button>
+            )
+          })}
         </div>
       </div>
 
