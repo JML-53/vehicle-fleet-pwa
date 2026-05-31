@@ -1,0 +1,76 @@
+https://mermaid.ai/app/projects/d0eeb1ca-11e3-49a2-8863-8ccc1f9afdcb/diagrams/024f34ad-5df9-45f7-91ea-189ed3c7f70e/version/v0.1/edit
+---
+config:
+  layout: dagre
+---
+flowchart TB
+    Start(["Joe Creates New Task"]) --> New@{ shape: lean-r, "STATUS: New"}
+    New --> UI_Updates["UI automatically sets new tasks to the default PRIORITY"] & JoeDefers["Joe decides new task is inteded as backlog"]
+    UI_Updates --> Medium@{ shape: hex, "Medium PRIORITY"}
+    Medium --> JoeElevates["Joe decides to start work, changes PRIORITY to high"]
+    JoeElevates --> High@{ shape: hex, ["High PRIORITY"]}
+    High --> ClaudeWorking["Claude recognizes PRIORITY change to high, Claude starts work on tasks"]
+    ClaudeWorking ---> ClaudeFinished@{ label: "Claude finishes task, changes STATUS to 'Ready For Review' to signal completion" }
+    ClaudeFinished --> ReadyforReview["STATUS: ReadyforReview"]
+    ReadyforReview --> ReadyToTest["Is Joe Ready to Test?"]
+    ReadyToTest -- Yes --> JoeReviews@{ label: "Joe Reviews Claude's Update, updates STATUS" }
+    ReadyToTest -- No --> NotTestedYet["STATUS: Not Tested Yet"] --> BecomesReady[Joe becomes ready to test] --> JoeReviews
+    JoeReviews --> Approve["All Requirements met, Joe updates STATUS"] & Partial["Some Requirements met, Joe updates STATUS"] & Incomplete["Requirements not met, Joe updates STATUS"]
+    Approve --> Approved["STATUS: Approved"]
+    Partial --> PartiallyImplemented["STATUS: Partially Implemented"]
+    Incomplete --> NotImplemented["STATUS: Not Implemented"]
+    NotImplemented --> JoeDecides["Joe Decides Next Step"]
+    PartiallyImplemented --> JoeDecides
+    JoeDecides -- Keep Working --> ClaudeWorking
+    JoeDecides -- Put On Hold --> Deferred["STATUS: Deferred"]
+    Approved --> SetComplete["UI automatically sets task PRIORITY to Completed"] --> Completed["PRIORITY:Completed"] --> End(["End"])
+    note1["Medium PRIORITY is a holding place until Joe is ready to start the task"] -.-> Medium
+    note2["Holding STATUS if Joe is working other items"] --> NotTestedYet
+    JoeDefers --> Deferred
+    Deferred --> UI_Updates2["UI automatically sets task to Low PRIORITY after STATUS changes to Deferred"]
+    UI_Updates2 --> Low["Low PRIORITY"]
+    Low --> JoeResumes["Joe wants to start work, Changes PRIORITY to High"]
+    JoeResumes --> High
+
+    ClaudeFinished@{ shape: rect}
+    ReadyforReview@{ shape: lean-r}
+    ReadyToTest@{ shape: decision}
+    JoeReviews@{ shape: decision}
+    NotTestedYet@{ shape: lean-r}
+    Approved@{ shape: lean-r}
+    PartiallyImplemented@{ shape: lean-r}
+    NotImplemented@{ shape: lean-r}
+    JoeDecides@{ shape: decision}
+    Deferred@{ shape: lean-r}
+    Completed@{ shape: hex}
+    note1@{ shape: braces}
+    note2@{ shape: braces}
+    Low@{ shape: hex}
+     Start:::JOE_ACTION
+     New:::STATUS
+     Medium:::PRIORITY
+     JoeElevates:::JOE_ACTION
+     High:::PRIORITY
+     ClaudeWorking:::CLAUDE_ACTION
+     ClaudeFinished:::CLAUDE_ACTION
+     ReadyforReview:::STATUS
+     ReadyToTest:::JOE_ACTION
+     JoeReviews:::JOE_ACTION
+     NotTestedYet:::STATUS
+     Approve:::JOE_ACTION
+     Partial:::JOE_ACTION
+     Incomplete:::JOE_ACTION
+     Approved:::STATUS
+     PartiallyImplemented:::STATUS
+     NotImplemented:::STATUS
+     JoeDecides:::JOE_ACTION
+     BecomesReady:::JOE_ACTION
+     Deferred:::STATUS
+     Completed:::PRIORITY
+     JoeDefers:::JOE_ACTION
+     Low:::PRIORITY
+     JoeResumes:::JOE_ACTION
+    classDef STATUS stroke-width:1px,stroke-dasharray:none,stroke:#374D7C,fill:#E2EBFF,color:#374D7C
+    classDef PRIORITY stroke-width:1px, stroke-dasharray:none, stroke:#254336, fill:#27654A, color:#FFFFFF
+    classDef CLAUDE_ACTION stroke-width:1px, stroke-dasharray:none, stroke:#FBB35A, fill:#FFEFDB, color:#8F632D
+    classDef JOE_ACTION fill:#2962FF,color:#ffffff

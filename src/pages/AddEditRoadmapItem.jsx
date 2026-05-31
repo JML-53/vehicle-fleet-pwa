@@ -6,13 +6,13 @@ import { supabase } from '@/lib/supabase'
 import { ArrowLeft } from 'lucide-react'
 
 const STATUS_OPTIONS = [
-  { value: 'new',             label: '[N] New' },
-  { value: 'deferred',        label: '[D] Deferred' },
-  { value: 'not_implemented', label: '[X] Not Implemented' },
-  { value: 'not_tested',      label: '[-] Not Tested Yet' },
-  { value: 'partial',         label: '[P] Partially Implemented' },
-  { value: 'complete',        label: '[C] Complete (pending review)' },
-  { value: 'approved',        label: '[✓] Approved by Joe' },
+  { value: 'new',              label: '[N] New' },
+  { value: 'deferred',         label: '[D] Deferred' },
+  { value: 'not_implemented',  label: '[X] Not Implemented' },
+  { value: 'not_tested',       label: '[-] Not Tested Yet' },
+  { value: 'partial',          label: '[P] Partially Implemented' },
+  { value: 'ready_for_review', label: '[R] Ready for Review' },
+  { value: 'approved',         label: '[✓] Approved by Joe' },
 ]
 
 const GROUP_OPTIONS = [
@@ -289,6 +289,7 @@ export default function AddEditRoadmapItem() {
                 <option value="high">High</option>
                 <option value="medium">Medium</option>
                 <option value="low">Low</option>
+                <option value="completed">✓ Completed</option>
               </select>
             </div>
             <div>

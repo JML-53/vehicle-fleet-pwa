@@ -9,8 +9,19 @@ import {
 } from 'lucide-react'
 
 function exportRoadmapJSON(items) {
+  // Build filename: roadmap_export MMDD-NN.json, NN increments per day
+  const now    = new Date()
+  const mm     = String(now.getMonth() + 1).padStart(2, '0')
+  const dd     = String(now.getDate()).padStart(2, '0')
+  const mmdd   = `${mm}${dd}`
+  const seqKey = `roadmap_export_seq_${mmdd}`
+  const seq    = Number(localStorage.getItem(seqKey) ?? -1) + 1
+  localStorage.setItem(seqKey, seq)
+  const nn       = String(seq).padStart(2, '0')
+  const filename = `roadmap_export ${mmdd}-${nn}.json`
+
   const out = {
-    exported_at: new Date().toISOString(),
+    exported_at: now.toISOString(),
     count: items.length,
     items,
   }
@@ -18,7 +29,7 @@ function exportRoadmapJSON(items) {
   const url  = URL.createObjectURL(blob)
   const a    = document.createElement('a')
   a.href     = url
-  a.download = 'roadmap_export.json'
+  a.download = filename
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
@@ -27,20 +38,22 @@ function exportRoadmapJSON(items) {
 
 // ── Status config ─────────────────────────────────────────────────────────────
 const STATUS = {
-  new:              { label: 'New',           badge: 'badge-blue',   Icon: Circle },
-  deferred:         { label: 'Deferred',      badge: 'badge-slate',  Icon: MinusCircle },
-  not_implemented:  { label: 'Not Impl.',     badge: 'badge-red',    Icon: XCircle },
-  not_tested:       { label: 'Not Tested',    badge: 'badge-slate',  Icon: Clock },
-  partial:          { label: 'Partial',       badge: 'badge-amber',  Icon: AlertCircle },
-  complete:         { label: 'Complete',      badge: 'badge-green',  Icon: CheckCircle2 },
-  approved:         { label: 'Approved ✓',    badge: 'badge-teal',   Icon: ThumbsUp },
+  new:              { label: 'New',              badge: 'badge-blue',   Icon: Circle },
+  deferred:         { label: 'Deferred',         badge: 'badge-slate',  Icon: MinusCircle },
+  not_implemented:  { label: 'Not Impl.',        badge: 'badge-red',    Icon: XCircle },
+  not_tested:       { label: 'Not Tested',       badge: 'badge-slate',  Icon: Clock },
+  partial:          { label: 'Partial',          badge: 'badge-amber',  Icon: AlertCircle },
+  ready_for_review: { label: 'Ready to Review',  badge: 'badge-green',  Icon: CheckCircle2 },
+  complete:         { label: 'Ready to Review',  badge: 'badge-green',  Icon: CheckCircle2 }, // legacy alias
+  approved:         { label: 'Approved ✓',       badge: 'badge-teal',   Icon: ThumbsUp },
 }
 
 // Priority config
 const PRIORITY = {
-  high:   { label: 'High',   color: 'text-red-600',   dot: 'bg-red-500' },
-  medium: { label: 'Med',    color: 'text-amber-600', dot: 'bg-amber-400' },
-  low:    { label: 'Low',    color: 'text-slate-400', dot: 'bg-slate-300' },
+  high:      { label: 'High',      color: 'text-red-600',    dot: 'bg-red-500' },
+  medium:    { label: 'Med',       color: 'text-amber-600',  dot: 'bg-amber-400' },
+  low:       { label: 'Low',       color: 'text-slate-400',  dot: 'bg-slate-300' },
+  completed: { label: '✓ Done',    color: 'text-green-700',  dot: 'bg-green-500' },
 }
 
 const GROUP_META = {
@@ -66,7 +79,7 @@ const FILTERS = [
 ]
 
 // "Active" = everything that isn't approved or deferred
-const ACTIVE_STATUSES = new Set(['new', 'not_implemented', 'not_tested', 'partial', 'complete'])
+const ACTIVE_STATUSES = new Set(['new', 'not_implemented', 'not_tested', 'partial', 'ready_for_review'])
 
 // ── Item row ─────────────────────────────────────────────────────────────────
 function RoadmapRow({ item, isChild = false }) {
@@ -105,7 +118,7 @@ function RoadmapRow({ item, isChild = false }) {
         {/* Status icon */}
         <Icon size={16} className={`flex-shrink-0 mt-0.5 ${
           item.status === 'approved'        ? 'text-teal-600'   :
-          item.status === 'complete'        ? 'text-green-600'  :
+          item.status === 'ready_for_review' ? 'text-green-600'  :
           item.status === 'partial'         ? 'text-amber-500'  :
           item.status === 'not_implemented' ? 'text-red-500'    :
           item.status === 'deferred'        ? 'text-slate-400'  :
@@ -122,7 +135,7 @@ function RoadmapRow({ item, isChild = false }) {
             <span className="text-sm font-medium text-slate-800">{item.title}</span>
             <span className={`${s.badge} text-xs flex-shrink-0`}>{s.label}</span>
             {/* Priority dot */}
-            {item.priority && item.priority !== 'medium' && (
+            {item.priority && !['medium'].includes(item.priority) && (
               <span className={`flex items-center gap-1 text-xs flex-shrink-0 ${prio.color}`}>
                 <span className={`inline-block w-1.5 h-1.5 rounded-full ${prio.dot}`} />
                 {prio.label}
@@ -185,7 +198,7 @@ function RoadmapRow({ item, isChild = false }) {
               <span className="hidden sm:inline">Sub</span>
             </button>
           )}
-          {item.status === 'complete' && (
+          {item.status === 'ready_for_review' && (
             <button
               onClick={() => quickApproveMutation.mutate()}
               title="Approve"
@@ -279,7 +292,7 @@ export default function RoadmapPage() {
       if (sortBy === 'status')
         return a.status.localeCompare(b.status)
       if (sortBy === 'priority') {
-        const order = { high: 0, medium: 1, low: 2 }
+        const order = { high: 0, medium: 1, low: 2, completed: 3 }
         return (order[a.priority] ?? 1) - (order[b.priority] ?? 1)
       }
       // default: item_number (natural sort)
@@ -305,7 +318,7 @@ export default function RoadmapPage() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => exportRoadmapJSON(allItems)}
-              title="Download roadmap_export.json"
+              title="Download roadmap_export MMDD-NN.json"
               className="flex items-center gap-1.5 bg-primary-800 hover:bg-primary-700
                          text-primary-200 text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
             >
@@ -375,7 +388,7 @@ export default function RoadmapPage() {
           const meta         = GROUP_META[group]
           const total        = countForGroup(group)
           const approvedCount = allItems.filter(i => i.group_name === group && i.status === 'approved').length
-          const awaitingCount = allItems.filter(i => i.group_name === group && i.status === 'complete').length
+          const awaitingCount = allItems.filter(i => i.group_name === group && i.status === 'ready_for_review').length
 
           return (
             <div key={group}>
