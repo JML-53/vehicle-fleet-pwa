@@ -13,7 +13,7 @@ You need Node.js installed. If you don't have it: https://nodejs.org (download L
 Open a terminal (PowerShell or Command Prompt), navigate to this folder, and run:
 
 ```
-cd "C:\Users\jmlma\OneDrive\Documents\Vehicles\vehicle-fleet-pwa"
+cd "C:\Users\jmlma\dev\vehicle-fleet-pwa"
 npm install
 ```
 
