@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import { enumLabel } from '@/lib/enums'
 import { format, parseISO, isBefore, addDays } from 'date-fns'
 import { Plus, ArrowLeft, Gauge, Pencil, Upload, Link2, ChevronDown, ChevronUp, ShieldCheck, AlertTriangle, Clock } from 'lucide-react'
 
@@ -564,6 +565,9 @@ function MaintenanceTab({ vehicleId }) {
       let cmp = 0
       if (sortCol === 'service_item') {
         cmp = (a.service_item || '').localeCompare(b.service_item || '')
+      } else if (sortCol === 'category') {
+        cmp = (a.category || '~').localeCompare(b.category || '~')
+          || (a.service_item || '').localeCompare(b.service_item || '')
       } else if (sortCol === 'next_due_date') {
         cmp = (a.next_due_date || '9999').localeCompare(b.next_due_date || '9999')
       } else if (sortCol === 'last_done_date') {
@@ -608,6 +612,7 @@ function MaintenanceTab({ vehicleId }) {
             <thead>
               <tr>
                 <SortHeader label="Item"          col="service_item"   sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
+                <SortHeader label="Category"      col="category"       sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
                 <th>Interval</th>
                 <SortHeader label="Last Done"     col="last_done_date" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
                 <th>Last Mi.</th>
@@ -626,6 +631,9 @@ function MaintenanceTab({ vehicleId }) {
                 return (
                   <tr key={row.id}>
                     <td className="font-medium text-slate-800">{row.service_item}</td>
+                    <td className="text-xs text-slate-500 whitespace-nowrap">
+                      {row.category ? enumLabel(row.category) : <span className="text-slate-300">—</span>}
+                    </td>
                     <td className="text-slate-500 text-xs">
                       {row.interval_months ? `${row.interval_months} mo` : ''}
                       {row.interval_months && row.interval_miles ? ' / ' : ''}

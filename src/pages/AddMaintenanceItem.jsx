@@ -16,10 +16,12 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import { useEnumValues } from '@/lib/enums'
 import { ArrowLeft, Link2, Plus, Trash2, ExternalLink } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 
 export default function AddMaintenanceItem() {
+  const serviceCategories = useEnumValues('service_category')
   const { id: vehicleId } = useParams()
   const [searchParams]    = useSearchParams()
   const itemId            = searchParams.get('edit')
@@ -252,9 +254,7 @@ export default function AddMaintenanceItem() {
         <div>
           <label className="field-label">Category</label>
           <select {...register('category')} className="field-select">
-            {['oil_change','brakes','tires','suspension','electrical','ac_hvac','engine',
-              'transmission','inspection','registration','modification','diagnostic',
-              'fuel_system','cooling','other'].map(c => (
+            {serviceCategories.map(c => (
               <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>
             ))}
           </select>

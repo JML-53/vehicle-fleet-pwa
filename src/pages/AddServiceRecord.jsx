@@ -2,14 +2,11 @@ import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
-import { useForm, useFieldArray } from 'react-hook-form'
+import { useEnumValues } from '@/lib/enums'
+import { useForm, useFieldArray, Controller } from 'react-hook-form'
+import MaintenanceLinkPicker from '@/components/MaintenanceLinkPicker'
+import { syncMaintenanceLinks, invalidateMaintenance } from '@/lib/maintenanceMatch'
 import { ArrowLeft, Plus, Trash2 } from 'lucide-react'
-
-const SERVICE_CATEGORIES = [
-  'oil_change','brakes','tires','suspension','electrical','ac_hvac','engine',
-  'transmission','inspection','registration','modification','diagnostic',
-  'fuel_system','cooling','other',
-]
 
 function useShops() {
   return useQuery({
@@ -37,6 +34,7 @@ function useVehicle(id) {
 }
 
 export default function AddServiceRecord() {
+  const serviceCategories = useEnumValues('service_category')
   const { id: vehicleId } = useParams()
   const navigate          = useNavigate()
   const queryClient       = useQueryClient()
@@ -64,6 +62,7 @@ export default function AddServiceRecord() {
       visit_type:   'shop',
       mileage:      '',
       parts:        [],
+      maintenance_ids: [],
     },
   })
 
@@ -158,9 +157,13 @@ export default function AddServiceRecord() {
         }
       }
 
+      // 5. Link maintenance schedule items this record fulfils
+      await syncMaintenanceLinks(record.id, formData.maintenance_ids)
+
       return record
     },
     onSuccess: () => {
+      invalidateMaintenance(queryClient, vehicleId)
       queryClient.invalidateQueries({ queryKey: ['service_history', vehicleId] })
       queryClient.invalidateQueries({ queryKey: ['mileage', vehicleId] })
       queryClient.invalidateQueries({ queryKey: ['recent_service'] })
@@ -207,7 +210,7 @@ export default function AddServiceRecord() {
             <div>
               <label className="field-label">Category</label>
               <select className="field-select" {...register('category')}>
-                {SERVICE_CATEGORIES.map(c => (
+                {serviceCategories.map(c => (
                   <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>
                 ))}
               </select>
@@ -261,6 +264,21 @@ export default function AddServiceRecord() {
               {...register('notes')}
             />
           </div>
+
+          <Controller
+            control={control}
+            name="maintenance_ids"
+            render={({ field }) => (
+              <MaintenanceLinkPicker
+                vehicleId={vehicleId}
+                title={watch('title')}
+                category={watch('category')}
+                value={field.value || []}
+                onChange={field.onChange}
+                autoSelect
+              />
+            )}
+          />
         </div>
 
         {/* ---- Visit details ---- */}

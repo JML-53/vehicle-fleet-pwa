@@ -17,15 +17,12 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useForm, useFieldArray, Controller } from 'react-hook-form'
+import { useForm, useFieldArray, useWatch, Controller } from 'react-hook-form'
 import { supabase } from '@/lib/supabase'
+import { useEnumValues } from '@/lib/enums'
+import MaintenanceLinkPicker from '@/components/MaintenanceLinkPicker'
+import { syncMaintenanceLinks, invalidateMaintenance } from '@/lib/maintenanceMatch'
 import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronRight, Sparkles, X, AlertTriangle } from 'lucide-react'
-
-const SERVICE_CATEGORIES = [
-  'oil_change','brakes','tires','suspension','electrical','ac_hvac','engine',
-  'transmission','inspection','registration','modification','diagnostic',
-  'fuel_system','cooling','other',
-]
 
 const EMPTY_RECORD = () => ({
   _id:         null,
@@ -37,6 +34,7 @@ const EMPTY_RECORD = () => ({
   total_cost:  '',
   notes:       '',
   parts:       [],
+  maintenance_ids: [],
 })
 
 const EMPTY_PART = () => ({
@@ -115,8 +113,13 @@ function PartRow({ idx, recIdx, register, remove }) {
   )
 }
 
-function RecordSection({ recIdx, register, control, remove, isOnly }) {
+function RecordSection({ recIdx, register, control, remove, isOnly, vehicleId }) {
+  const serviceCategories = useEnumValues('service_category')
   const [open, setOpen] = useState(true)
+  const [recId, title, category] = useWatch({
+    control,
+    name: [`records.${recIdx}._id`, `records.${recIdx}.title`, `records.${recIdx}.category`],
+  })
   const { fields: partFields, append: addPart, remove: removePart } = useFieldArray({
     control,
     name: `records.${recIdx}.parts`,
@@ -154,7 +157,7 @@ function RecordSection({ recIdx, register, control, remove, isOnly }) {
             <div>
               <label className="field-label">Category</label>
               <select className="field-select" {...register(`records.${recIdx}.category`)}>
-                {SERVICE_CATEGORIES.map(c => (
+                {serviceCategories.map(c => (
                   <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>
                 ))}
               </select>
@@ -191,6 +194,21 @@ function RecordSection({ recIdx, register, control, remove, isOnly }) {
             <textarea className="field-textarea" rows={2}
               {...register(`records.${recIdx}.notes`)} />
           </div>
+
+          <Controller
+            control={control}
+            name={`records.${recIdx}.maintenance_ids`}
+            render={({ field }) => (
+              <MaintenanceLinkPicker
+                vehicleId={vehicleId}
+                title={title}
+                category={category}
+                value={field.value || []}
+                onChange={field.onChange}
+                autoSelect={!recId}
+              />
+            )}
+          />
 
           {/* Parts sub-section */}
           <div className="space-y-2">
@@ -234,6 +252,7 @@ function parsedRecordToForm(pr) {
     parts_cost:  pr.parts_cost  != null ? String(pr.parts_cost)  : '',
     total_cost:  pr.total_cost  != null ? String(pr.total_cost)  : '',
     notes:       pr.notes       || '',
+    maintenance_ids: [],
     parts: (pr.parts || []).map(p => ({
       _id:          null,
       part_name:    p.part_name    || '',
@@ -282,6 +301,7 @@ export default function AddEditServiceVisit() {
           *,
           service_records(
             id, title, category, description, labor_cost, parts_cost, total_cost, notes,
+            maintenance_fulfillments(maintenance_schedule_id),
             parts(id, part_name, part_number, manufacturer, vendor, order_number, quantity, unit_cost, total_cost)
           )
         `)
@@ -372,6 +392,7 @@ export default function AddEditServiceVisit() {
           parts_cost:  r.parts_cost  != null ? String(r.parts_cost)  : '',
           total_cost:  r.total_cost  != null ? String(r.total_cost)  : '',
           notes:       r.notes       || '',
+          maintenance_ids: (r.maintenance_fulfillments || []).map(f => f.maintenance_schedule_id),
           parts: (r.parts || []).map(p => ({
             _id:          p.id,
             part_name:    p.part_name    || '',
@@ -503,9 +524,14 @@ export default function AddEditServiceVisit() {
             await supabase.from('parts').insert(partPayload)
           }
         }
+
+        // Maintenance schedule items this record fulfils
+        await syncMaintenanceLinks(recordId, rec.maintenance_ids || [])
       }
     },
     onSuccess: () => {
+      invalidateMaintenance(qc, vehicleId)
+      qc.invalidateQueries({ queryKey: ['service_visit_full', visitId] })
       qc.invalidateQueries({ queryKey: ['service_history', vehicleId] })
       qc.invalidateQueries({ queryKey: ['service_visits',  vehicleId] })
       qc.invalidateQueries({ queryKey: ['mileage',         vehicleId] })
@@ -731,6 +757,7 @@ export default function AddEditServiceVisit() {
               control={control}
               remove={() => removeRecord(ridx)}
               isOnly={recFields.length === 1}
+              vehicleId={vehicleId}
             />
           ))}
         </div>

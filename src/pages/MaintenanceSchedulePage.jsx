@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
+import { enumLabel } from '@/lib/enums'
 import { format, parseISO, addMonths, isBefore, addDays } from 'date-fns'
 import { Pencil, Link2 } from 'lucide-react'
 
@@ -115,6 +116,9 @@ export default function MaintenanceSchedulePage() {
       let cmp = 0
       if (sortCol === 'service_item') {
         cmp = (a.service_item || '').localeCompare(b.service_item || '')
+      } else if (sortCol === 'category') {
+        cmp = (a.category || '~').localeCompare(b.category || '~')
+          || (a.service_item || '').localeCompare(b.service_item || '')
       } else if (sortCol === 'next_due_date') {
         cmp = (a.next_due_date || '9999').localeCompare(b.next_due_date || '9999')
       } else if (sortCol === 'last_done_date') {
@@ -175,6 +179,7 @@ export default function MaintenanceSchedulePage() {
                 <thead>
                   <tr>
                     <SortHeader label="Item"      col="service_item"   sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
+                    <SortHeader label="Category"  col="category"       sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
                     <th>Interval</th>
                     <SortHeader label="Last Done" col="last_done_date" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
                     <th>Last Mi.</th>
@@ -193,6 +198,9 @@ export default function MaintenanceSchedulePage() {
                     return (
                       <tr key={row.id}>
                         <td className="font-medium text-slate-800">{row.service_item}</td>
+                        <td className="text-xs text-slate-500 whitespace-nowrap">
+                          {row.category ? enumLabel(row.category) : <span className="text-slate-300">—</span>}
+                        </td>
                         <td className="text-slate-500 text-xs">
                           {row.interval_months ? `${row.interval_months} mo` : ''}
                           {row.interval_months && row.interval_miles ? ' / ' : ''}

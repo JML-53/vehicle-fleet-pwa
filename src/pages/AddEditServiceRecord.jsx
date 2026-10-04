@@ -9,17 +9,15 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useForm, useFieldArray } from 'react-hook-form'
+import { useForm, useFieldArray, Controller } from 'react-hook-form'
 import { supabase } from '@/lib/supabase'
+import { useEnumValues } from '@/lib/enums'
+import MaintenanceLinkPicker from '@/components/MaintenanceLinkPicker'
+import { syncMaintenanceLinks, invalidateMaintenance } from '@/lib/maintenanceMatch'
 import { ArrowLeft, Plus, Trash2 } from 'lucide-react'
 
-const SERVICE_CATEGORIES = [
-  'oil_change','brakes','tires','suspension','electrical','ac_hvac','engine',
-  'transmission','inspection','registration','modification','diagnostic',
-  'fuel_system','cooling','other',
-]
-
 export default function AddEditServiceRecord() {
+  const serviceCategories = useEnumValues('service_category')
   const { id: vehicleId, recordId } = useParams()
   const navigate    = useNavigate()
   const qc          = useQueryClient()
@@ -31,7 +29,7 @@ export default function AddEditServiceRecord() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('service_records')
-        .select('*, parts(*)')
+        .select('*, parts(*), maintenance_fulfillments(maintenance_schedule_id)')
         .eq('id', recordId)
         .single()
       if (error) throw error
@@ -40,7 +38,7 @@ export default function AddEditServiceRecord() {
     enabled: !!recordId,
   })
 
-  const { register, control, handleSubmit, reset, formState: { errors } } = useForm({
+  const { register, control, handleSubmit, reset, watch, formState: { errors } } = useForm({
     defaultValues: {
       service_date: '',
       category:     'other',
@@ -51,6 +49,7 @@ export default function AddEditServiceRecord() {
       total_cost:   '',
       notes:        '',
       parts:        [],
+      maintenance_ids: [],
     },
   })
 
@@ -71,6 +70,7 @@ export default function AddEditServiceRecord() {
         parts_cost:   existing.parts_cost   != null ? String(existing.parts_cost) : '',
         total_cost:   existing.total_cost   != null ? String(existing.total_cost) : '',
         notes:        existing.notes        || '',
+        maintenance_ids: (existing.maintenance_fulfillments || []).map(f => f.maintenance_schedule_id),
         parts: (existing.parts || []).map(p => ({
           _id:          p.id,
           part_name:    p.part_name    || '',
@@ -134,8 +134,13 @@ export default function AddEditServiceRecord() {
           if (error) throw error
         }
       }
+
+      // 3. Sync maintenance schedule links
+      await syncMaintenanceLinks(recordId, formData.maintenance_ids)
     },
     onSuccess: () => {
+      invalidateMaintenance(qc, vehicleId)
+      qc.invalidateQueries({ queryKey: ['service_record', recordId] })
       qc.invalidateQueries({ queryKey: ['service_history', vehicleId] })
       qc.invalidateQueries({ queryKey: ['service_visits',  vehicleId] })
       qc.invalidateQueries({ queryKey: ['recent_service'] })
@@ -199,7 +204,7 @@ export default function AddEditServiceRecord() {
             <div>
               <label className="field-label">Category</label>
               <select className="field-select" {...register('category')}>
-                {SERVICE_CATEGORIES.map(c => (
+                {serviceCategories.map(c => (
                   <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>
                 ))}
               </select>
@@ -240,6 +245,20 @@ export default function AddEditServiceRecord() {
             <label className="field-label">Notes</label>
             <textarea className="field-textarea" rows={2} {...register('notes')} />
           </div>
+
+          <Controller
+            control={control}
+            name="maintenance_ids"
+            render={({ field }) => (
+              <MaintenanceLinkPicker
+                vehicleId={vehicleId}
+                title={watch('title')}
+                category={watch('category')}
+                value={field.value || []}
+                onChange={field.onChange}
+              />
+            )}
+          />
         </div>
 
         {/* ---- Parts ---- */}
