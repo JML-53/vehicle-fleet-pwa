@@ -53,10 +53,49 @@ function tokenize(text) {
   )
 }
 
+// ── Domain rules (Joe's review of the 2026-10-04 backfill) ───────────────────
+// Each rule sees the record/item plus their token sets and may return a new
+// score. Raises run first, then caps, so a cap always wins.
+
+const isInspectionRecord = (rec, rt) => rec.category === 'inspection' || rt.has('inspect')
+const isInspectionItem   = (item, it) => item.category === 'inspection' || it.has('inspect')
+const ALL_FOUR_TIRES     = /\b(all\s*(4|four)|set\s+of\s+(4|four)|(4|four)\s+(new\s+)?tires?)\b/
+
+const RAISE_RULES = [
+  // Title names every word of the item ("Battery" → Battery). Single-word
+  // items can't otherwise reach the auto threshold.
+  { name: 'full-name', apply: (rec, item, rt, it) =>
+      it.size > 0 && [...it].every(t => rt.has(t)) ? AUTO_THRESHOLD : null },
+
+  // Changing pads/rotors always includes a brake inspection.
+  { name: 'pads-imply-brake-inspection', apply: (rec, item, rt, it) =>
+      /\b(pads?|rotors?)\b/i.test(rec.title || '') && it.has('brak') && it.has('inspect')
+        ? AUTO_THRESHOLD : null },
+
+  // A full set of four tires restarts rotation. Fewer than four stays a
+  // lower-confidence suggestion via the base score.
+  { name: 'four-tires-imply-rotation', apply: (rec, item, rt, it) =>
+      ALL_FOUR_TIRES.test((rec.title || '').toLowerCase()) && it.has('tir') && it.has('rotat')
+        ? AUTO_THRESHOLD : null },
+]
+
+const CAP_RULES = [
+  // An inspection doesn't fulfil a replacement/service item (an inspection
+  // that mentions "Battery" did not replace the battery). Suggest at most.
+  { name: 'inspection-only-fulfils-inspections', apply: (rec, item, rt, it, score) =>
+      isInspectionRecord(rec, rt) && !isInspectionItem(item, it)
+        ? Math.min(score, AUTO_THRESHOLD - 0.5) : null },
+
+  // Safety and emissions are separate inspections with separate receipts —
+  // a safety inspection never counts toward exhaust / emissions / EVAP items.
+  { name: 'safety-is-not-emissions', apply: (rec, item, rt) =>
+      rt.has('safety') && /exhaust|emission|evap/i.test(item.service_item) ? 0 : null },
+]
+
 /**
  * How well does a service record (title + category) match a schedule item?
- * Shared specific word = 1, shared generic word = 0.5, same specific category = 0.5
- * (oil_change = 1).
+ * Base: shared specific word = 1, shared generic word = 0.5, same specific
+ * category = 0.5 (oil_change = 1). Then RAISE_RULES, then CAP_RULES.
  */
 export function scoreMatch(record, scheduleItem) {
   const recTokens  = tokenize(record.title)
@@ -71,6 +110,14 @@ export function scoreMatch(record, scheduleItem) {
     !GENERIC_CATEGORIES.has(record.category)
   ) {
     score += CATEGORY_WEIGHT[record.category] ?? 0.5
+  }
+  for (const rule of RAISE_RULES) {
+    const s = rule.apply(record, scheduleItem, recTokens, itemTokens, score)
+    if (s != null) score = Math.max(score, s)
+  }
+  for (const rule of CAP_RULES) {
+    const s = rule.apply(record, scheduleItem, recTokens, itemTokens, score)
+    if (s != null) score = Math.min(score, s)
   }
   return score
 }
