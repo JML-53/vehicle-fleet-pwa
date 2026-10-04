@@ -2,7 +2,7 @@
 
 ## Session Start Protocol
 
-1. Find the newest `roadmap_export MMDD-NN.json` in `../Archive/` (sort by filename; highest MMDD then NN wins).
+1. Find the newest `roadmap_export MMDD-NN.json` in `C:\Users\jmlma\OneDrive\Documents\Vehicles\Archive\` (sort by filename; highest MMDD then NN wins).
 2. Read it and surface all items where `priority = "high"` and `status` is not `"approved"` or `"deferred"`. These are the active work items.
 3. Note today's date's export counter key (`roadmap_export_seq_MMDD` in localStorage, browser-side) for naming the next export.
 
@@ -159,4 +159,4 @@ Read-only git ops (`git status`, `git diff`, `git log`) are fine to run directly
 
 Exports from `RoadmapPage.jsx` auto-generate filenames via localStorage:  
 `roadmap_export MMDD-NN.json` where MMDD = month+day, NN = zero-padded daily sequence.  
-Archives live in `../Archive/` (one level up from the project root).
+Archives live in `C:\Users\jmlma\OneDrive\Documents\Vehicles\Archive\` (outside the repo, which lives in `C:\Users\jmlma\dev\`).
