@@ -16,6 +16,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { supabase } from '@/lib/supabase'
+import DeleteOrRequest from '@/components/DeleteOrRequest'
 import { format, parseISO } from 'date-fns'
 import { ArrowLeft, Download, Sparkles, Trash2, Save, ExternalLink } from 'lucide-react'
 
@@ -214,19 +215,19 @@ export default function DocumentDetail() {
             </button>
           )}
 
-          <button
-            onClick={() => {
-              if (window.confirm('Delete this document? The file will be permanently removed.')) {
-                deleteMutation.mutate()
-              }
-            }}
-            disabled={deleteMutation.isPending}
-            className="flex items-center gap-1.5 text-sm py-2 px-3 rounded-lg font-medium
-                       bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 disabled:opacity-60 transition-colors ml-auto"
-          >
-            <Trash2 size={14} />
-            {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
-          </button>
+          <span className="ml-auto">
+            <DeleteOrRequest
+              table="documents" rowId={docId} vehicleId={doc?.vehicle_id}
+              confirmText="Delete this document? The file will be permanently removed."
+              onDelete={() => deleteMutation.mutate()}
+              disabled={deleteMutation.isPending}
+              className="flex items-center gap-1.5 text-sm py-2 px-3 rounded-lg font-medium
+                         bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 transition-colors"
+            >
+              <Trash2 size={14} />
+              {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+            </DeleteOrRequest>
+          </span>
         </div>
 
         {analyzeErr && (

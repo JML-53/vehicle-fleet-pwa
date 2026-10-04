@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/contexts/AuthContext'
 import { ArrowLeft } from 'lucide-react'
 
 export default function AddPendingWork() {
@@ -24,13 +25,21 @@ export default function AddPendingWork() {
     enabled: isEditing,
   })
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm({
+  const { profile } = useAuth()
+  const { register, handleSubmit, reset, getValues, setValue, formState: { errors } } = useForm({
     defaultValues: { status: 'pending', priority: 'medium' },
   })
 
   useEffect(() => {
     if (existing) reset(existing)
   }, [existing, reset])
+
+  // New items: default "Identified by" to whoever is signed in
+  useEffect(() => {
+    if (!itemId && profile?.display_name && !getValues('identified_by')) {
+      setValue('identified_by', profile.display_name)
+    }
+  }, [itemId, profile, getValues, setValue])
 
   const mutation = useMutation({
     mutationFn: async (values) => {

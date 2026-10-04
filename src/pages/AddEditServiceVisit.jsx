@@ -19,6 +19,8 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm, useFieldArray, useWatch, Controller } from 'react-hook-form'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/contexts/AuthContext'
+import DeleteOrRequest, { PendingDeletionBadge } from '@/components/DeleteOrRequest'
 import { useEnumValues } from '@/lib/enums'
 import MaintenanceLinkPicker from '@/components/MaintenanceLinkPicker'
 import { syncMaintenanceLinks, invalidateMaintenance } from '@/lib/maintenanceMatch'
@@ -113,7 +115,7 @@ function PartRow({ idx, recIdx, register, remove }) {
   )
 }
 
-function RecordSection({ recIdx, register, control, remove, isOnly, vehicleId }) {
+function RecordSection({ recIdx, register, control, remove, isOnly, vehicleId, isAdmin }) {
   const serviceCategories = useEnumValues('service_category')
   const [open, setOpen] = useState(true)
   const [recId, title, category] = useWatch({
@@ -135,7 +137,7 @@ function RecordSection({ recIdx, register, control, remove, isOnly, vehicleId })
         <span className="text-xs font-semibold text-slate-600 flex-1">
           Service Item {recIdx + 1}
         </span>
-        {!isOnly && (
+        {!isOnly && (isAdmin || !recId) && (
           <button type="button" onClick={remove}
             className="text-red-400 hover:text-red-600 text-xs flex items-center gap-0.5">
             <Trash2 size={12} /> Remove
@@ -273,6 +275,7 @@ export default function AddEditServiceVisit() {
   const location   = useLocation()
   const qc         = useQueryClient()
   const isEditing  = !!visitId
+  const { isAdmin } = useAuth()
   const [serverError,   setServerError]   = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deletebusy,    setDeleteBusy]    = useState(false)
@@ -758,6 +761,7 @@ export default function AddEditServiceVisit() {
               remove={() => removeRecord(ridx)}
               isOnly={recFields.length === 1}
               vehicleId={vehicleId}
+              isAdmin={isAdmin}
             />
           ))}
         </div>
@@ -778,8 +782,15 @@ export default function AddEditServiceVisit() {
           </button>
         </div>
 
-        {isEditing && !confirmDelete && (
+        {isEditing && !isAdmin && (
           <div className="pb-6 flex justify-end">
+            <DeleteOrRequest table="service_visits" rowId={visitId} vehicleId={vehicleId} onDelete={() => {}} />
+          </div>
+        )}
+
+        {isEditing && isAdmin && !confirmDelete && (
+          <div className="pb-6 flex justify-end items-center gap-2">
+            <PendingDeletionBadge table="service_visits" rowId={visitId} />
             <button
               type="button"
               onClick={() => setConfirmDelete(true)}
@@ -790,7 +801,7 @@ export default function AddEditServiceVisit() {
           </div>
         )}
 
-        {isEditing && confirmDelete && (
+        {isEditing && isAdmin && confirmDelete && (
           <div className="pb-6 p-3 bg-red-50 border border-red-200 rounded-lg space-y-2">
             <p className="text-sm text-red-700 flex items-center gap-1.5 font-medium">
               <AlertTriangle size={14} /> Delete this entire visit?

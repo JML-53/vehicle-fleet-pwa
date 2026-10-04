@@ -48,6 +48,8 @@ export function AuthProvider({ children }) {
     session,
     user:    session?.user ?? null,
     profile,
+    isAdmin: profile?.role === 'admin',
+    refreshProfile: () => session && fetchProfile(session.user.id),
     loading: session === undefined,
     signIn,
     signOut,

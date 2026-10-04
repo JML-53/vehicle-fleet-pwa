@@ -24,6 +24,10 @@ import AddEditRoadmapItem from '@/pages/AddEditRoadmapItem'
 import AddEditServiceRecord from '@/pages/AddEditServiceRecord'
 import AddEditServiceVisit from '@/pages/AddEditServiceVisit'
 import AddInspection from '@/pages/AddInspection'
+import SetPassword from '@/pages/SetPassword'
+import ChangesPage from '@/pages/ChangesPage'
+import AdminUsersPage from '@/pages/AdminUsersPage'
+import RequireAdmin from '@/components/RequireAdmin'
 
 function RequireAuth({ children }) {
   const { session, loading } = useAuth()
@@ -43,6 +47,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/set-password" element={<SetPassword />} />
 
       <Route
         path="/"
@@ -86,6 +91,10 @@ export default function App() {
         <Route path="roadmap"                    element={<RoadmapPage />} />
         <Route path="roadmap/new"                element={<AddEditRoadmapItem />} />
         <Route path="roadmap/:itemId/edit"       element={<AddEditRoadmapItem />} />
+
+        {/* Family / admin */}
+        <Route path="changes"                    element={<ChangesPage />} />
+        <Route path="admin/users"                element={<RequireAdmin><AdminUsersPage /></RequireAdmin>} />
       </Route>
 
       {/* Catch-all */}

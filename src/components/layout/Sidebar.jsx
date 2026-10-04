@@ -1,9 +1,10 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, Car, ClipboardList, Wrench,
-  FileText, LogOut, ChevronRight, ListTodo
+  FileText, LogOut, ChevronRight
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useSecondaryNav, badgeText } from './secondaryNav'
 
 const NAV_ITEMS = [
   { to: '/',            label: 'Dashboard',        Icon: LayoutDashboard },
@@ -15,6 +16,7 @@ const NAV_ITEMS = [
 
 export default function Sidebar() {
   const { profile, signOut } = useAuth()
+  const { items: secondary } = useSecondaryNav()
 
   return (
     <aside className="hidden lg:flex flex-col w-56 h-screen sticky top-0 bg-primary-900 text-white overflow-y-auto">
@@ -51,22 +53,27 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      {/* Dev Roadmap — below a thin divider, just above user block */}
-      <div className="px-3 pb-2 border-t border-primary-800 pt-2">
-        <NavLink
-          to="/roadmap"
-          className={({ isActive }) =>
-            `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-              isActive
-                ? 'bg-primary-700 text-white'
-                : 'text-primary-400 hover:bg-primary-800 hover:text-white'
-            }`
-          }
-        >
-          <ListTodo size={18} strokeWidth={1.8} />
-          <span className="flex-1">Dev Roadmap</span>
-          <ChevronRight size={14} className="opacity-30" />
-        </NavLink>
+      {/* Changes · Dev Roadmap · Users — below a thin divider, just above user block */}
+      <div className="px-3 pb-2 border-t border-primary-800 pt-2 space-y-0.5">
+        {secondary.map(({ to, label, Icon, badge }) => (
+          <NavLink
+            key={to}
+            to={to}
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                isActive
+                  ? 'bg-primary-700 text-white'
+                  : 'text-primary-400 hover:bg-primary-800 hover:text-white'
+              }`
+            }
+          >
+            <Icon size={18} strokeWidth={1.8} />
+            <span className="flex-1">{label}</span>
+            {badge > 0
+              ? <span className="min-w-[1.25rem] px-1.5 rounded-full bg-amber-400 text-primary-900 text-[10px] font-bold text-center leading-5">{badgeText(badge)}</span>
+              : <ChevronRight size={14} className="opacity-30" />}
+          </NavLink>
+        ))}
       </div>
 
       {/* User / sign out */}

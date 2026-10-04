@@ -11,6 +11,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm, useFieldArray, Controller } from 'react-hook-form'
 import { supabase } from '@/lib/supabase'
+import DeleteOrRequest from '@/components/DeleteOrRequest'
 import { useEnumValues } from '@/lib/enums'
 import MaintenanceLinkPicker from '@/components/MaintenanceLinkPicker'
 import { syncMaintenanceLinks, invalidateMaintenance } from '@/lib/maintenanceMatch'
@@ -163,12 +164,6 @@ export default function AddEditServiceRecord() {
     },
     onError: (err) => setServerError(err.message || 'Delete failed.'),
   })
-
-  function confirmDelete() {
-    if (window.confirm('Delete this service record and all its parts? This cannot be undone.')) {
-      deleteMutation.mutate()
-    }
-  }
 
   if (isLoading) {
     return <div className="p-4 text-slate-400 text-sm animate-pulse">Loading record…</div>
@@ -347,15 +342,15 @@ export default function AddEditServiceRecord() {
           <button type="button" onClick={() => navigate(-1)} className="btn-secondary py-3 px-5">
             Cancel
           </button>
-          <button
-            type="button"
-            onClick={confirmDelete}
+          <DeleteOrRequest
+            table="service_records" rowId={recordId} vehicleId={vehicleId}
+            confirmText="Delete this service record and all its parts? This cannot be undone."
+            onDelete={() => deleteMutation.mutate()}
             disabled={deleteMutation.isPending}
-            className="btn-danger py-3 px-4 disabled:opacity-60"
-            title="Delete this record"
+            className="btn-danger py-3 px-4"
           >
             <Trash2 size={16} />
-          </button>
+          </DeleteOrRequest>
         </div>
 
       </form>

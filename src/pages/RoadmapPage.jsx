@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/contexts/AuthContext'
 import {
   Plus, Pencil, ChevronDown, ChevronRight,
   CheckCircle2, Circle, AlertCircle, Clock, XCircle, ThumbsUp,
@@ -92,6 +93,7 @@ const ACTIVE_STATUSES = new Set(['new', 'not_implemented', 'not_tested', 'partia
 
 // ── Item row ─────────────────────────────────────────────────────────────────
 function RoadmapRow({ item, isChild = false }) {
+  const { isAdmin } = useAuth()
   const [open, setOpen] = useState(false)
   const navigate = useNavigate()
   const qc = useQueryClient()
@@ -207,7 +209,7 @@ function RoadmapRow({ item, isChild = false }) {
               <span className="hidden sm:inline">Sub</span>
             </button>
           )}
-          {item.status === 'ready_for_review' && (
+          {isAdmin && item.status === 'ready_for_review' && (
             <button
               onClick={() => quickApproveMutation.mutate()}
               title="Approve"

@@ -3,6 +3,8 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/contexts/AuthContext'
+import DeleteOrRequest from '@/components/DeleteOrRequest'
 import { ArrowLeft } from 'lucide-react'
 
 const STATUS_OPTIONS = [
@@ -96,6 +98,8 @@ export default function AddEditRoadmapItem() {
     return nextItemNumber(allItems, group)
   }, [allItems])
 
+  const { isAdmin } = useAuth()
+
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm({
     defaultValues: {
       group_name:     presetGroup,
@@ -154,6 +158,13 @@ export default function AddEditRoadmapItem() {
         date_requested: values.date_requested  || null,
         date_completed: values.date_completed  || null,
         sort_order:     Number(values.sort_order) || 0,
+      }
+      // Status, priority and completion are Joe's call (also enforced by
+      // trg_roadmap_a_member_guard) — members never send them.
+      if (!isAdmin) {
+        delete payload.status
+        delete payload.priority
+        delete payload.date_completed
       }
       if (isEditing) {
         const { error } = await supabase.from('roadmap_items').update(payload).eq('id', itemId)
@@ -271,13 +282,15 @@ export default function AddEditRoadmapItem() {
         <div className="card space-y-3 border border-amber-200 bg-amber-50">
           <h2 className="card-header text-amber-800">Joe's Review</h2>
           <p className="text-xs text-amber-700">
-            Update status, priority, and feedback after reviewing a completed item.
+            {isAdmin
+              ? 'Update status, priority, and feedback after reviewing a completed item.'
+              : 'Joe sets status, priority and completion. You can add feedback below.'}
           </p>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="field-label">Status</label>
-              <select {...register('status')} className="field-select">
+              <select {...register('status')} className="field-select disabled:opacity-60" disabled={!isAdmin}>
                 {STATUS_OPTIONS.map(o => (
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
@@ -285,7 +298,7 @@ export default function AddEditRoadmapItem() {
             </div>
             <div>
               <label className="field-label">Priority</label>
-              <select {...register('priority')} className="field-select">
+              <select {...register('priority')} className="field-select disabled:opacity-60" disabled={!isAdmin}>
                 <option value="high">High</option>
                 <option value="medium">Medium</option>
                 <option value="low">Low</option>
@@ -298,7 +311,7 @@ export default function AddEditRoadmapItem() {
             </div>
             <div>
               <label className="field-label">Date Completed</label>
-              <input {...register('date_completed')} type="date" className="field-input" />
+              <input {...register('date_completed')} type="date" className="field-input disabled:opacity-60" disabled={!isAdmin} />
               <p className="text-xs text-slate-400 mt-0.5">
                 {watchedStatus === 'approved' ? 'Set when approving.' : 'Leave blank until done.'}
               </p>
@@ -343,13 +356,9 @@ export default function AddEditRoadmapItem() {
             Cancel
           </button>
           {isEditing && (
-            <button
-              type="button"
-              onClick={() => { if (window.confirm('Delete this roadmap item?')) deleteMutation.mutate() }}
-              className="btn-danger"
-            >
-              Delete
-            </button>
+            <DeleteOrRequest table="roadmap_items" rowId={itemId}
+              confirmText="Delete this roadmap item?"
+              onDelete={() => deleteMutation.mutate()} />
           )}
         </div>
       </form>

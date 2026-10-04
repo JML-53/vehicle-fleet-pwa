@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import DeleteOrRequest from '@/components/DeleteOrRequest'
 import { ArrowLeft } from 'lucide-react'
 
 export default function AddEditMod() {
@@ -155,9 +156,9 @@ export default function AddEditMod() {
           </button>
           <button type="button" onClick={() => navigate(-1)} className="btn-secondary">Cancel</button>
           {isEditing && (
-            <button type="button"
-              onClick={() => { if (window.confirm('Delete this modification?')) deleteMutation.mutate() }}
-              className="btn-danger">Delete</button>
+            <DeleteOrRequest table="modifications" rowId={modId} vehicleId={vehicleId}
+              confirmText="Delete this modification?"
+              onDelete={() => deleteMutation.mutate()} />
           )}
         </div>
       </form>

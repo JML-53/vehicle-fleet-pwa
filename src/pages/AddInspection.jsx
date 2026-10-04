@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import DeleteOrRequest from '@/components/DeleteOrRequest'
 import { ArrowLeft } from 'lucide-react'
 import { format, addMonths, endOfMonth, parseISO } from 'date-fns'
 
@@ -379,15 +380,9 @@ export default function AddInspection() {
             Cancel
           </button>
           {isEditing && (
-            <button
-              type="button"
-              onClick={() => {
-                if (window.confirm('Remove this inspection record?')) deleteMutation.mutate()
-              }}
-              className="btn-danger"
-            >
-              Delete
-            </button>
+            <DeleteOrRequest table="inspection_fulfillments" rowId={fulfillmentId} vehicleId={vehicleId}
+              confirmText="Remove this inspection record?"
+              onDelete={() => deleteMutation.mutate()} />
           )}
         </div>
       </form>

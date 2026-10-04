@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import DeleteOrRequest from '@/components/DeleteOrRequest'
 import { ArrowLeft } from 'lucide-react'
 
 const CATEGORIES = ['Tires', 'Engine Oil', 'AC / Refrigerant', 'Paint', 'Keys / Fobs',
@@ -127,9 +128,9 @@ export default function AddEditSpec() {
           </button>
           <button type="button" onClick={() => navigate(-1)} className="btn-secondary">Cancel</button>
           {isEditing && (
-            <button type="button"
-              onClick={() => { if (window.confirm('Delete this spec?')) deleteMutation.mutate() }}
-              className="btn-danger">Delete</button>
+            <DeleteOrRequest table="known_specs" rowId={specId} vehicleId={vehicleId}
+              confirmText="Delete this spec?"
+              onDelete={() => deleteMutation.mutate()} />
           )}
         </div>
       </form>

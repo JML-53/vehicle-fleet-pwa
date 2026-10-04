@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
+import { supabase } from '@/lib/supabase'
 
 export default function Login() {
   const { signIn } = useAuth()
@@ -9,6 +10,18 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [error, setError]       = useState('')
   const [loading, setLoading]   = useState(false)
+  const [notice, setNotice]     = useState('')
+
+  async function handleForgot() {
+    setError('')
+    setNotice('')
+    if (!email) { setError('Enter your email above, then click "Forgot password?".'); return }
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/set-password`,
+    })
+    if (error) setError(error.message)
+    else setNotice(`If ${email} has an account, a reset link is on its way.`)
+  }
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -68,6 +81,11 @@ export default function Login() {
                 {error}
               </p>
             )}
+            {notice && (
+              <p className="text-sm text-green-700 bg-green-50 rounded-lg px-3 py-2">
+                {notice}
+              </p>
+            )}
 
             <button
               type="submit"
@@ -75,6 +93,14 @@ export default function Login() {
               className="w-full btn-primary py-3 text-base disabled:opacity-60"
             >
               {loading ? 'Signing in…' : 'Sign In'}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleForgot}
+              className="w-full text-xs text-primary-600 hover:text-primary-800"
+            >
+              Forgot password?
             </button>
           </form>
         </div>
