@@ -3,6 +3,11 @@ import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { enumLabel } from '@/lib/enums'
+import { useVehiclePendingWork, CLOSED } from '@/lib/pendingWork'
+import { useProfiles } from '@/lib/changeLog'
+import { useStoredState } from '@/lib/useStoredState'
+import PendingCard, { PendingLinkBadges } from '@/components/PendingCard'
+import CompletePendingSheet from '@/components/CompletePendingSheet'
 import { format, parseISO, isBefore, addDays } from 'date-fns'
 import { Plus, ArrowLeft, Gauge, Pencil, Upload, Link2, ChevronDown, ChevronUp, ShieldCheck, AlertTriangle, Clock } from 'lucide-react'
 
@@ -38,6 +43,7 @@ const useServiceHistory = id => useQuery({
       .select(`
         *,
         service_visits(visit_date, work_order, invoice_number, technician, total_cost, shops(name, phone)),
+        pending_work_links(resolves, pending_work(id, title)),
         parts(id, part_name, part_number, manufacturer, vendor, order_number, quantity, unit_cost, total_cost)
       `)
       .eq('vehicle_id', id)
@@ -57,25 +63,11 @@ const useServiceVisits = id => useQuery({
         *,
         shops(name, phone),
         service_records(id, title, category, description, labor_cost, parts_cost, total_cost, notes,
+          pending_work_links(resolves, pending_work(id, title)),
           parts(id, part_name, part_number, manufacturer, vendor, quantity, unit_cost, total_cost))
       `)
       .eq('vehicle_id', id)
       .order('visit_date', { ascending: false })
-    if (error) throw error
-    return data
-  },
-  enabled: !!id,
-})
-
-const usePendingWork = id => useQuery({
-  queryKey: ['pending_work', id],
-  queryFn: async () => {
-    const { data, error } = await supabase
-      .from('pending_work')
-      .select('*')
-      .eq('vehicle_id', id)
-      .not('status', 'in', '("completed","cancelled")')
-      .order('status')
     if (error) throw error
     return data
   },
@@ -239,6 +231,7 @@ function ServiceHistoryTab({ vehicleId }) {
           {r.description && (
             <p className="text-xs text-slate-600 mb-2 leading-relaxed">{r.description}</p>
           )}
+          <PendingLinkBadges links={r.pending_work_links} vehicleId={vehicleId} />
 
           <div className="flex items-center justify-between text-xs text-slate-500">
             <div className="flex items-center gap-4">
@@ -344,6 +337,7 @@ function ServiceVisitsTab({ vehicleId }) {
                     </button>
                   </div>
                 </div>
+                <PendingLinkBadges links={r.pending_work_links} vehicleId={vehicleId} />
                 {r.description && (
                   <p className="text-xs text-slate-600 mb-1 leading-relaxed">{r.description}</p>
                 )}
@@ -381,34 +375,20 @@ function ServiceVisitsTab({ vehicleId }) {
 }
 
 function PendingWorkTab({ vehicleId }) {
-  const { data, isLoading } = usePendingWork(vehicleId)
-  const qc = useQueryClient()
-  const navigate = useNavigate()
+  const [showClosed, setShowClosed] = useStoredState('pending_show_completed', false)
+  const { data, isLoading } = useVehiclePendingWork(vehicleId, { includeClosed: showClosed })
+  const { data: people = {} } = useProfiles()
+  const [doneItem, setDoneItem] = useState(null)
 
-  const prioColors = {
-    high: 'badge-red', medium: 'badge-amber', low: 'badge-slate',
-    watch: 'badge-blue', conditional: 'badge-slate',
-  }
-  const statusColors = {
-    pending: 'badge-amber', in_progress: 'badge-blue',
-    deferred: 'badge-slate', watch: 'badge-blue', conditional: 'badge-slate',
-  }
-
-  const markComplete = useMutation({
-    mutationFn: async (id) => {
-      const { error } = await supabase
-        .from('pending_work').update({ status: 'completed' }).eq('id', id)
-      if (error) throw error
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['pending_work', vehicleId] })
-      qc.invalidateQueries({ queryKey: ['pending_work_open'] })
-    },
-  })
+  const openCount = (data || []).filter(i => !CLOSED.includes(i.status)).length
 
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
+      <div className="flex items-center justify-between gap-2">
+        <label className="flex items-center gap-1.5 text-xs text-slate-600">
+          <input type="checkbox" checked={showClosed} onChange={e => setShowClosed(e.target.checked)} />
+          Show completed
+        </label>
         <Link
           to={`/vehicles/${vehicleId}/add-pending`}
           className="inline-flex items-center gap-1.5 btn-primary text-xs py-1.5 px-3"
@@ -418,48 +398,18 @@ function PendingWorkTab({ vehicleId }) {
       </div>
 
       {isLoading && <Loading />}
-      {!isLoading && !data?.length && <Empty message="No open pending work items." />}
+      {!isLoading && !data?.length && (
+        <Empty message={showClosed ? 'No pending work recorded.' : 'No open pending work items.'} />
+      )}
+      {!isLoading && showClosed && data?.length > 0 && openCount === 0 && (
+        <p className="text-xs text-slate-400 italic">Nothing open — showing completed items.</p>
+      )}
 
       {(data || []).map(item => (
-        <div key={item.id} className="card">
-          <div className="flex items-start justify-between gap-2 mb-2">
-            <p className="font-semibold text-slate-800 text-sm">{item.title}</p>
-            <div className="flex gap-1.5 flex-shrink-0">
-              <span className={prioColors[item.priority] || 'badge-slate'}>{item.priority}</span>
-              <span className={statusColors[item.status] || 'badge-slate'}>{item.status?.replace('_',' ')}</span>
-            </div>
-          </div>
-          {item.description && (
-            <p className="text-xs text-slate-600 leading-relaxed mb-2">{item.description}</p>
-          )}
-          <div className="flex items-center justify-between mt-1">
-            <div className="flex items-center gap-4 text-xs text-slate-500">
-              {item.estimated_cost && <span>Est: {item.estimated_cost}</span>}
-              {item.identified_by && <span>Source: {item.identified_by}</span>}
-              {item.identified_date && (
-                <span>ID'd: {format(parseISO(item.identified_date), 'MMM yyyy')}</span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => navigate(`/vehicles/${vehicleId}/add-pending?edit=${item.id}`)}
-                className="text-xs text-slate-400 hover:text-primary-600 flex items-center gap-0.5"
-              >
-                <Pencil size={11} /> Edit
-              </button>
-              {item.status !== 'completed' && (
-                <button
-                  onClick={() => markComplete.mutate(item.id)}
-                  disabled={markComplete.isPending}
-                  className="text-xs text-green-600 hover:text-green-800 font-medium"
-                >
-                  ✓ Done
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+        <PendingCard key={item.id} item={item} people={people} onDone={setDoneItem} />
       ))}
+
+      {doneItem && <CompletePendingSheet item={doneItem} onClose={() => setDoneItem(null)} />}
     </div>
   )
 }

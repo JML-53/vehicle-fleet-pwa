@@ -6,6 +6,8 @@ import { useEnumValues } from '@/lib/enums'
 import { useForm, useFieldArray, Controller } from 'react-hook-form'
 import MaintenanceLinkPicker from '@/components/MaintenanceLinkPicker'
 import { syncMaintenanceLinks, invalidateMaintenance } from '@/lib/maintenanceMatch'
+import PendingLinkPicker from '@/components/PendingLinkPicker'
+import { syncPendingLinks, invalidatePending } from '@/lib/pendingWork'
 import { ArrowLeft, Plus, Trash2 } from 'lucide-react'
 
 function useShops() {
@@ -63,6 +65,7 @@ export default function AddServiceRecord() {
       mileage:      '',
       parts:        [],
       maintenance_ids: [],
+      pending_links:   [],
     },
   })
 
@@ -159,11 +162,13 @@ export default function AddServiceRecord() {
 
       // 5. Link maintenance schedule items this record fulfils
       await syncMaintenanceLinks(record.id, formData.maintenance_ids)
+      await syncPendingLinks(record.id, formData.pending_links)
 
       return record
     },
     onSuccess: () => {
       invalidateMaintenance(queryClient, vehicleId)
+      invalidatePending(queryClient, vehicleId)
       queryClient.invalidateQueries({ queryKey: ['service_history', vehicleId] })
       queryClient.invalidateQueries({ queryKey: ['mileage', vehicleId] })
       queryClient.invalidateQueries({ queryKey: ['recent_service'] })
@@ -276,6 +281,19 @@ export default function AddServiceRecord() {
                 value={field.value || []}
                 onChange={field.onChange}
                 autoSelect
+              />
+            )}
+          />
+
+          <Controller
+            control={control}
+            name="pending_links"
+            render={({ field }) => (
+              <PendingLinkPicker
+                vehicleId={vehicleId}
+                title={watch('title')}
+                value={field.value || []}
+                onChange={field.onChange}
               />
             )}
           />

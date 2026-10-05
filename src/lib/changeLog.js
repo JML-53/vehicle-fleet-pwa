@@ -43,6 +43,7 @@ export const TABLE_META = {
   mileage_log:              { noun: 'mileage reading',   rank: 20, title: r => r.mileage != null ? `${Number(r.mileage).toLocaleString()} mi` : null, link: r => v(r) },
   parts:                    { noun: 'part',              rank: 21, title: r => r.part_name,                 link: () => null },
   maintenance_fulfillments: { noun: 'maintenance link',  rank: 22, title: () => null,                       link: () => null },
+  pending_work_links:       { noun: 'pending-work link', rank: 23, title: r => (r.resolves ? 'resolves' : 'worked on'), link: () => null },
 }
 
 const VERB   = { INSERT: 'added', UPDATE: 'edited', DELETE: 'deleted' }

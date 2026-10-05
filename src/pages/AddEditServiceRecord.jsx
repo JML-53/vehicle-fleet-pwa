@@ -15,6 +15,8 @@ import DeleteOrRequest from '@/components/DeleteOrRequest'
 import { useEnumValues } from '@/lib/enums'
 import MaintenanceLinkPicker from '@/components/MaintenanceLinkPicker'
 import { syncMaintenanceLinks, invalidateMaintenance } from '@/lib/maintenanceMatch'
+import PendingLinkPicker from '@/components/PendingLinkPicker'
+import { syncPendingLinks, invalidatePending } from '@/lib/pendingWork'
 import { ArrowLeft, Plus, Trash2 } from 'lucide-react'
 
 export default function AddEditServiceRecord() {
@@ -30,7 +32,7 @@ export default function AddEditServiceRecord() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('service_records')
-        .select('*, parts(*), maintenance_fulfillments(maintenance_schedule_id)')
+        .select('*, parts(*), maintenance_fulfillments(maintenance_schedule_id), pending_work_links(pending_work_id, resolves)')
         .eq('id', recordId)
         .single()
       if (error) throw error
@@ -51,6 +53,7 @@ export default function AddEditServiceRecord() {
       notes:        '',
       parts:        [],
       maintenance_ids: [],
+      pending_links:   [],
     },
   })
 
@@ -72,6 +75,7 @@ export default function AddEditServiceRecord() {
         total_cost:   existing.total_cost   != null ? String(existing.total_cost) : '',
         notes:        existing.notes        || '',
         maintenance_ids: (existing.maintenance_fulfillments || []).map(f => f.maintenance_schedule_id),
+        pending_links:   (existing.pending_work_links || []).map(l => ({ pending_work_id: l.pending_work_id, resolves: l.resolves })),
         parts: (existing.parts || []).map(p => ({
           _id:          p.id,
           part_name:    p.part_name    || '',
@@ -138,9 +142,11 @@ export default function AddEditServiceRecord() {
 
       // 3. Sync maintenance schedule links
       await syncMaintenanceLinks(recordId, formData.maintenance_ids)
+      await syncPendingLinks(recordId, formData.pending_links)
     },
     onSuccess: () => {
       invalidateMaintenance(qc, vehicleId)
+      invalidatePending(qc, vehicleId)
       qc.invalidateQueries({ queryKey: ['service_record', recordId] })
       qc.invalidateQueries({ queryKey: ['service_history', vehicleId] })
       qc.invalidateQueries({ queryKey: ['service_visits',  vehicleId] })
@@ -249,6 +255,19 @@ export default function AddEditServiceRecord() {
                 vehicleId={vehicleId}
                 title={watch('title')}
                 category={watch('category')}
+                value={field.value || []}
+                onChange={field.onChange}
+              />
+            )}
+          />
+
+          <Controller
+            control={control}
+            name="pending_links"
+            render={({ field }) => (
+              <PendingLinkPicker
+                vehicleId={vehicleId}
+                title={watch('title')}
                 value={field.value || []}
                 onChange={field.onChange}
               />

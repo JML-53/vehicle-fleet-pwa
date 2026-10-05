@@ -24,7 +24,9 @@ import DeleteOrRequest, { PendingDeletionBadge } from '@/components/DeleteOrRequ
 import { useEnumValues } from '@/lib/enums'
 import MaintenanceLinkPicker from '@/components/MaintenanceLinkPicker'
 import { syncMaintenanceLinks, invalidateMaintenance } from '@/lib/maintenanceMatch'
-import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronRight, Sparkles, X, AlertTriangle } from 'lucide-react'
+import PendingLinkPicker from '@/components/PendingLinkPicker'
+import { syncPendingLinks, invalidatePending } from '@/lib/pendingWork'
+import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronRight, Sparkles, X, AlertTriangle, ClipboardList } from 'lucide-react'
 
 const EMPTY_RECORD = () => ({
   _id:         null,
@@ -37,6 +39,7 @@ const EMPTY_RECORD = () => ({
   notes:       '',
   parts:       [],
   maintenance_ids: [],
+  pending_links:   [],
 })
 
 const EMPTY_PART = () => ({
@@ -212,6 +215,19 @@ function RecordSection({ recIdx, register, control, remove, isOnly, vehicleId, i
             )}
           />
 
+          <Controller
+            control={control}
+            name={`records.${recIdx}.pending_links`}
+            render={({ field }) => (
+              <PendingLinkPicker
+                vehicleId={vehicleId}
+                title={title}
+                value={field.value || []}
+                onChange={field.onChange}
+              />
+            )}
+          />
+
           {/* Parts sub-section */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -255,6 +271,7 @@ function parsedRecordToForm(pr) {
     total_cost:  pr.total_cost  != null ? String(pr.total_cost)  : '',
     notes:       pr.notes       || '',
     maintenance_ids: [],
+    pending_links:   [],
     parts: (pr.parts || []).map(p => ({
       _id:          null,
       part_name:    p.part_name    || '',
@@ -284,6 +301,8 @@ export default function AddEditServiceVisit() {
   const parsedState   = location.state?.parsed      || null   // { visit, records }
   const parsedDocId   = location.state?.documentId  || null
   const [parsedBanner, setParsedBanner] = useState(!!parsedState)
+  // State passed from a pending work item ("Log service visit")
+  const fromPending   = location.state?.fromPending || null
 
   // Inline add-shop state
   const [showAddShop,  setShowAddShop]  = useState(false)
@@ -305,6 +324,7 @@ export default function AddEditServiceVisit() {
           service_records(
             id, title, category, description, labor_cost, parts_cost, total_cost, notes,
             maintenance_fulfillments(maintenance_schedule_id),
+            pending_work_links(pending_work_id, resolves),
             parts(id, part_name, part_number, manufacturer, vendor, order_number, quantity, unit_cost, total_cost)
           )
         `)
@@ -374,6 +394,28 @@ export default function AddEditServiceVisit() {
     })
   }, [parsedState, shops]) // eslint-disable-line
 
+  // Pre-populate from a pending work item (add-visit mode only)
+  useEffect(() => {
+    if (!fromPending || isEditing || parsedState) return
+    reset({
+      visit_date:     new Date().toISOString().split('T')[0],
+      shop_id:        fromPending.assigned_shop_id || '',
+      visit_type:     fromPending.shop_is_self ? 'self' : 'shop',
+      work_order:     '',
+      invoice_number: '',
+      technician:     '',
+      mileage:        '',
+      total_cost:     '',
+      notes:          '',
+      records: [{
+        ...EMPTY_RECORD(),
+        title:         fromPending.title,
+        description:   fromPending.description,
+        pending_links: [{ pending_work_id: fromPending.id, resolves: true }],
+      }],
+    })
+  }, [fromPending?.id]) // eslint-disable-line
+
   useEffect(() => {
     if (existing) {
       reset({
@@ -396,6 +438,7 @@ export default function AddEditServiceVisit() {
           total_cost:  r.total_cost  != null ? String(r.total_cost)  : '',
           notes:       r.notes       || '',
           maintenance_ids: (r.maintenance_fulfillments || []).map(f => f.maintenance_schedule_id),
+          pending_links:   (r.pending_work_links || []).map(l => ({ pending_work_id: l.pending_work_id, resolves: l.resolves })),
           parts: (r.parts || []).map(p => ({
             _id:          p.id,
             part_name:    p.part_name    || '',
@@ -530,16 +573,18 @@ export default function AddEditServiceVisit() {
 
         // Maintenance schedule items this record fulfils
         await syncMaintenanceLinks(recordId, rec.maintenance_ids || [])
+        await syncPendingLinks(recordId, rec.pending_links || [])
       }
     },
     onSuccess: () => {
       invalidateMaintenance(qc, vehicleId)
+      invalidatePending(qc, vehicleId)
       qc.invalidateQueries({ queryKey: ['service_visit_full', visitId] })
       qc.invalidateQueries({ queryKey: ['service_history', vehicleId] })
       qc.invalidateQueries({ queryKey: ['service_visits',  vehicleId] })
       qc.invalidateQueries({ queryKey: ['mileage',         vehicleId] })
       qc.invalidateQueries({ queryKey: ['recent_service'] })
-      navigate(`/vehicles/${vehicleId}?tab=visits`)
+      navigate(`/vehicles/${vehicleId}?tab=${fromPending ? 'pending' : 'visits'}`)
     },
     onError: (err) => setServerError(err.message || 'Save failed.'),
   })
@@ -607,6 +652,17 @@ export default function AddEditServiceVisit() {
       </div>
 
       {/* ── AI parse banner ── */}
+      {fromPending && !isEditing && (
+        <div className="bg-primary-50 border-b border-primary-200 px-4 py-3 flex items-start gap-3">
+          <ClipboardList size={16} className="text-primary-500 flex-shrink-0 mt-0.5" />
+          <p className="text-sm text-primary-800">
+            Logging work for pending item <span className="font-semibold">“{fromPending.title}”</span>.
+            It’s pre-linked below as <span className="font-semibold">resolves</span> — switch it to
+            “worked on” if the problem isn’t fixed yet.
+          </p>
+        </div>
+      )}
+
       {parsedBanner && (
         <div className="bg-amber-50 border-b border-amber-200 px-4 py-3 flex items-start gap-3">
           <Sparkles size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />

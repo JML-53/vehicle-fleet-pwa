@@ -1,0 +1,30 @@
+ SELECT pw.id,
+    pw.vehicle_id,
+    pw.priority,
+    pw.title,
+    pw.description,
+    pw.estimated_cost,
+    pw.identified_date,
+    pw.identified_by,
+    pw.status,
+    pw.completed_date,
+    pw.resolved_by_record_id,
+    pw.notes,
+    pw.created_at,
+    pw.updated_at,
+    v.name AS vehicle_name,
+    v.year,
+    v.make,
+    v.model
+   FROM pending_work pw
+     JOIN vehicles v ON v.id = pw.vehicle_id
+  WHERE pw.status = ANY (ARRAY['pending'::pending_status, 'in_progress'::pending_status, 'deferred'::pending_status])
+  ORDER BY (
+        CASE pw.priority
+            WHEN 'high'::pending_priority THEN 1
+            WHEN 'medium'::pending_priority THEN 2
+            WHEN 'low'::pending_priority THEN 3
+            WHEN 'watch'::pending_priority THEN 4
+            WHEN 'conditional'::pending_priority THEN 5
+            ELSE NULL::integer
+        END), v.name;

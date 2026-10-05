@@ -1,83 +1,78 @@
-import { useQuery } from '@tanstack/react-query'
+/**
+ * PendingWorkPage — fleet-wide pending work (item 23).
+ * Cards open the item; "✓ Done" offers log / link / done-without-record.
+ */
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/contexts/AuthContext'
+import { useProfiles } from '@/lib/changeLog'
+import { useFleetPendingWork, CLOSED } from '@/lib/pendingWork'
+import { useStoredState } from '@/lib/useStoredState'
+import PendingCard from '@/components/PendingCard'
+import CompletePendingSheet from '@/components/CompletePendingSheet'
 
 export default function PendingWorkPage() {
-  const { data, isLoading } = useQuery({
-    queryKey: ['pending_work_open'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('pending_work_open')
-        .select('*')
-      if (error) throw error
-      return data
-    },
-  })
+  const { user } = useAuth()
+  const [showClosed, setShowClosed] = useStoredState('pending_show_completed', false)
+  const [mineOnly,   setMineOnly]   = useStoredState('pending_assigned_to_me', false)
+  const { data = [], isLoading } = useFleetPendingWork({ includeClosed: showClosed })
+  const { data: people = {} } = useProfiles()
+  const [doneItem, setDoneItem] = useState(null)
 
-  const prioColors = {
-    high: 'badge-red', medium: 'badge-amber', low: 'badge-slate',
-    watch: 'badge-blue', conditional: 'badge-slate',
-  }
+  const items    = mineOnly ? data.filter(i => i.assigned_to === user?.id) : data
+  const openN    = data.filter(i => !CLOSED.includes(i.status)).length
+  const grouped  = useMemo(() => {
+    const g = {}
+    for (const item of items) {
+      const key = item.vehicles?.name || 'Unknown vehicle'
+      ;(g[key] ||= { vehicleId: item.vehicle_id, items: [] }).items.push(item)
+    }
+    return Object.entries(g).sort((a, b) => a[0].localeCompare(b[0]))
+  }, [items])
 
-  // Group by vehicle
-  const grouped = (data || []).reduce((acc, item) => {
-    const key = item.vehicle_name
-    if (!acc[key]) acc[key] = { vehicleId: item.vehicle_id, items: [] }
-    acc[key].items.push(item)
-    return acc
-  }, {})
+  const chip = (on) => `px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+    on ? 'bg-white text-primary-900' : 'bg-primary-800 text-primary-200 hover:bg-primary-700'}`
 
   return (
     <div>
       <div className="bg-primary-900 text-white px-5 py-5">
         <h1 className="text-xl font-bold">Pending Work</h1>
-        <p className="text-primary-300 text-sm mt-0.5">
-          {(data || []).length} open items across all vehicles
-        </p>
+        <p className="text-primary-300 text-sm mt-0.5">{openN} open items across all vehicles</p>
+        <div className="flex flex-wrap gap-2 mt-3">
+          <button type="button" onClick={() => setMineOnly(m => !m)} className={chip(mineOnly)}>
+            Assigned to me
+          </button>
+          <button type="button" onClick={() => setShowClosed(s => !s)} className={chip(showClosed)}>
+            Show completed
+          </button>
+        </div>
       </div>
 
       <div className="p-4 space-y-5 max-w-2xl mx-auto">
         {isLoading && <p className="text-slate-400 text-sm animate-pulse">Loading…</p>}
 
-        {Object.entries(grouped).map(([vehicleName, { vehicleId, items }]) => (
+        {grouped.map(([vehicleName, { vehicleId, items: vItems }]) => (
           <div key={vehicleName}>
-            <Link
-              to={`/vehicles/${vehicleId}`}
-              className="card-header hover:text-primary-700 transition-colors block mb-2"
-            >
+            <Link to={`/vehicles/${vehicleId}?tab=pending`}
+              className="card-header hover:text-primary-700 transition-colors block mb-2">
               {vehicleName} ›
             </Link>
             <div className="space-y-3">
-              {items.map(item => (
-                <div key={item.id} className="card">
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <p className="font-semibold text-slate-800 text-sm">{item.title}</p>
-                    <span className={`${prioColors[item.priority] || 'badge-slate'} flex-shrink-0`}>
-                      {item.priority}
-                    </span>
-                  </div>
-                  {item.description && (
-                    <p className="text-xs text-slate-600 leading-relaxed mb-2 line-clamp-3">
-                      {item.description}
-                    </p>
-                  )}
-                  <div className="flex flex-wrap gap-3 text-xs text-slate-500">
-                    {item.estimated_cost && <span>Est: {item.estimated_cost}</span>}
-                    {item.status && <span className="capitalize">{item.status.replace('_',' ')}</span>}
-                    {item.identified_by && <span>Source: {item.identified_by}</span>}
-                  </div>
-                </div>
+              {vItems.map(item => (
+                <PendingCard key={item.id} item={item} people={people} onDone={setDoneItem} />
               ))}
             </div>
           </div>
         ))}
 
-        {!isLoading && Object.keys(grouped).length === 0 && (
+        {!isLoading && grouped.length === 0 && (
           <p className="text-center text-slate-400 text-sm py-12">
-            No open pending work items.
+            {mineOnly ? 'Nothing assigned to you.' : 'No open pending work items.'}
           </p>
         )}
       </div>
+
+      {doneItem && <CompletePendingSheet item={doneItem} onClose={() => setDoneItem(null)} />}
     </div>
   )
 }

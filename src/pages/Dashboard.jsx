@@ -37,7 +37,9 @@ function useInspectionStatus() {
 
 function usePendingWorkOpen() {
   return useQuery({
-    queryKey: ['pending_work_open'],
+    // Own key: this is a filtered subset — sharing ['pending_work_open'] with
+    // the full list let each page briefly show the other's data.
+    queryKey: ['pending_work_open', 'dashboard_high'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('pending_work_open')
@@ -183,7 +185,7 @@ function VehicleCard({ vehicle }) {
 function PendingItem({ item }) {
   return (
     <Link
-      to={`/vehicles/${item.vehicle_id}?tab=pending`}
+      to={`/vehicles/${item.vehicle_id}/add-pending?edit=${item.id}`}
       className="flex items-start gap-3 py-2.5 border-b border-slate-100 last:border-0
                  hover:bg-slate-50 -mx-4 px-4 transition-colors"
     >
