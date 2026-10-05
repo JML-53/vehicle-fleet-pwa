@@ -142,7 +142,7 @@ function SessionCard({ session, people, vehicles, isNew }) {
         <ul className="mt-2 ml-11 space-y-2 border-l border-slate-100 pl-3">
           {session.entries.map(e => {
             const link = entryLink(e)
-            const diff = entryDiff(e)
+            const diff = entryDiff(e, people)
             return (
               <li key={e.id} className="text-sm">
                 <div className="flex items-center gap-2">

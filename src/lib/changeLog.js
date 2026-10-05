@@ -68,18 +68,35 @@ export function entryLink(e) {
   return e.op === 'DELETE' ? null : meta(e.table_name).link(entryRow(e))
 }
 
-/** [{ field, from, to }] for an UPDATE, skipping bookkeeping and *_id columns */
-export function entryDiff(e) {
+const UUID_RE      = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/
+
+/**
+ * [{ field, from, to }] for an UPDATE. Skips bookkeeping and *_id columns;
+ * user ids (e.g. resolved_by) become names via `people`, other ids are hidden.
+ */
+export function entryDiff(e, people = {}) {
   if (e.op !== 'UPDATE') return []
+  const isOpaqueId = v => typeof v === 'string' && UUID_RE.test(v) && !people[v]
   return (e.changed_fields || [])
     .filter(f => !HIDDEN.has(f) && !f.endsWith('_id'))
-    .map(f => ({ field: f.replace(/_/g, ' '), from: fmt(e.old_data?.[f]), to: fmt(e.new_data?.[f]) }))
+    .filter(f => !isOpaqueId(e.old_data?.[f]) && !isOpaqueId(e.new_data?.[f]))
+    .map(f => ({
+      field: f.replace(/_/g, ' '),
+      from:  fmt(e.old_data?.[f], people),
+      to:    fmt(e.new_data?.[f], people),
+    }))
 }
 
-function fmt(val) {
+function fmt(val, people = {}) {
   if (val == null || val === '') return '—'
   if (typeof val === 'object') return JSON.stringify(val)
   const s = String(val)
+  if (UUID_RE.test(s) && people[s]) return people[s].display_name
+  if (TIMESTAMP_RE.test(s)) {
+    const d = new Date(s)
+    if (!isNaN(d)) return d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  }
   return s.length > 80 ? s.slice(0, 77) + '…' : s
 }
 

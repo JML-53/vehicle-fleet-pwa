@@ -12,6 +12,8 @@
  *   set_disabled{ user_id, disabled }
  *   send_link   { email, origin }          → re-invite if never accepted,
  *                                             otherwise password-reset email
+ *   copy_link   { email, origin }          → { link } — same one-time link,
+ *                                             returned instead of emailed
  *
  * Response: { success: true, ... } | { success: false, error }
  * Handled errors return HTTP 200 so supabase.functions.invoke surfaces the
@@ -136,6 +138,33 @@ serve(async (req) => {
           : await admin.auth.admin.inviteUserByEmail(email, { redirectTo: redirect(body.origin) })
         if (sendErr) return fail(sendErr.message)
         return ok({ kind: target.email_confirmed_at ? "reset" : "invite" })
+      }
+
+      // ── copy_link ──────────────────────────────────────────────────────────
+      // Same one-time link the emails contain, but returned instead of sent —
+      // no email, so no email rate limit. Admin shares it by text message.
+      case "copy_link": {
+        const email = String(body.email ?? "").trim().toLowerCase()
+        const { data: authData, error } = await admin.auth.admin.listUsers({ perPage: 200 })
+        if (error) return fail(error.message)
+        const target = authData.users.find(u => u.email?.toLowerCase() === email)
+        if (!target) return fail("No account with that email")
+
+        const options = { redirectTo: redirect(body.origin) }
+        // Never accepted → invite link (falls back to recovery); otherwise recovery
+        const attempts: Array<"invite" | "recovery"> =
+          target.email_confirmed_at ? ["recovery"] : ["invite", "recovery"]
+        let lastErr = "Could not generate a link"
+        for (const type of attempts) {
+          // deno-lint-ignore no-explicit-any
+          const params = { type, email, options } as any
+          const { data, error: linkErr } = await admin.auth.admin.generateLink(params)
+          if (!linkErr && data?.properties?.action_link) {
+            return ok({ link: data.properties.action_link, kind: type })
+          }
+          lastErr = linkErr?.message ?? lastErr
+        }
+        return fail(lastErr)
       }
 
       default:
