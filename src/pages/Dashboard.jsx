@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { useMyOpenWork, PRIORITY_META } from '@/lib/pendingWork'
 import { format, parseISO, differenceInDays } from 'date-fns'
 import { AlertTriangle, CheckCircle, Clock, Car, Plus, ShieldCheck } from 'lucide-react'
 
@@ -234,10 +235,46 @@ function ServiceRow({ record }) {
   )
 }
 
+// ---- "My work" (item 23.1) ----
+
+const MY_WORK_LIMIT = 5
+
+function MyWorkCard({ userId }) {
+  const { data: items = [] } = useMyOpenWork(userId)
+  if (!items.length) return null
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="card-header mb-0">My Work</h2>
+        <Link to="/pending?person=me&group=person" className="text-xs text-primary-600 hover:underline">
+          {items.length > MY_WORK_LIMIT ? `See all ${items.length}` : 'Open list'}
+        </Link>
+      </div>
+      <div className="card">
+        {items.slice(0, MY_WORK_LIMIT).map(item => {
+          const pr = PRIORITY_META[item.priority] ?? { label: item.priority, badge: 'badge-slate' }
+          return (
+            <Link key={item.id} to={`/vehicles/${item.vehicle_id}/add-pending?edit=${item.id}`}
+              className="flex items-start gap-3 py-2.5 border-b border-slate-100 last:border-0 hover:bg-slate-50 -mx-4 px-4 transition-colors">
+              <span className={`${pr.badge} mt-0.5 flex-shrink-0`}>{pr.label}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-slate-800 truncate">{item.title}</p>
+                <p className="text-xs text-slate-500 mt-0.5 truncate">
+                  {item.vehicles?.name}{item.status === 'in_progress' ? ' · in progress' : ''}
+                </p>
+              </div>
+            </Link>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
 // ---- Main Dashboard ----
 
 export default function Dashboard() {
-  const { profile } = useAuth()
+  const { profile, user } = useAuth()
   const vehicles    = useVehicles()
   const inspections = useInspectionStatus()
   const pending     = usePendingWorkOpen()
@@ -265,6 +302,9 @@ export default function Dashboard() {
       </div>
 
       <div className="p-4 space-y-5 max-w-3xl mx-auto w-full">
+
+        {/* Open work assigned to whoever is signed in */}
+        <MyWorkCard userId={user?.id} />
 
         {/* Inspection grid */}
         <section>

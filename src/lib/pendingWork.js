@@ -71,6 +71,27 @@ export function useFleetPendingWork({ includeClosed = false } = {}) {
   })
 }
 
+/** Open items assigned to one person (Dashboard "My work" card, item 23.1). */
+export function useMyOpenWork(userId) {
+  return useQuery({
+    queryKey: ['pending_work_fleet', 'mine', userId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('pending_work')
+        .select('id, vehicle_id, title, priority, status, vehicles(name)')
+        .eq('assigned_to', userId)
+        .not('status', 'in', `(${CLOSED.join(',')})`)
+      if (error) throw error
+      return data.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
+    },
+    enabled: !!userId,
+    staleTime: 0,
+  })
+}
+
+const PRIORITY_ORDER = ['high', 'medium', 'low', 'watch', 'conditional']
+export const priorityRank = p => { const i = PRIORITY_ORDER.indexOf(p); return i < 0 ? 99 : i }
+
 export function usePendingItem(id) {
   return useQuery({
     queryKey: ['pending_work_item', id],
