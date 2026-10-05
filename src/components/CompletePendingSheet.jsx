@@ -1,5 +1,5 @@
 /**
- * CompletePendingSheet — what "✓ Done" on a pending item opens (item 23).
+ * CompletePendingSheet — what "Mark done…" on a pending item opens (item 23).
  *
  *   Log the service visit       → visit form pre-filled + pre-linked
  *   Link to a visit already logged → pick a recent record (resolves)

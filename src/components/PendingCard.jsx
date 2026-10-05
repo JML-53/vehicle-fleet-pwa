@@ -4,7 +4,7 @@
  */
 import { Link, useNavigate } from 'react-router-dom'
 import { format, parseISO } from 'date-fns'
-import { Wrench, User, CheckCircle2, CircleDashed } from 'lucide-react'
+import { Wrench, User, CheckCircle2, CircleDashed, Circle } from 'lucide-react'
 import { PRIORITY_META, STATUS_META, CLOSED, resolvingLink } from '@/lib/pendingWork'
 
 function recordLink(vehicleId, rec) {
@@ -88,9 +88,14 @@ export default function PendingCard({ item, people = {}, vehicleName, onDone }) 
           {item.identified_date && <span>{format(parseISO(item.identified_date), 'MMM yyyy')}</span>}
         </div>
         {!closed && onDone && (
+          // An action, not a status: outlined button + verb + "…" (opens a choice).
+          // Green/✓ is reserved for things that ARE done (badges, "Resolved by").
           <button type="button" onClick={e => { e.stopPropagation(); onDone(item) }}
-            className="text-xs text-green-600 hover:text-green-800 font-medium whitespace-nowrap">
-            ✓ Done
+            title="Mark this item done — log the visit, link a record, or close it"
+            className="shrink-0 inline-flex items-center gap-1 text-xs font-medium whitespace-nowrap
+                       px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-slate-700
+                       hover:border-primary-400 hover:text-primary-700 hover:bg-primary-50 transition-colors">
+            <Circle size={12} /> Mark done…
           </button>
         )}
       </div>

@@ -1,6 +1,6 @@
 /**
  * PendingWorkPage — fleet-wide pending work (item 23).
- * Cards open the item; "✓ Done" offers log / link / done-without-record.
+ * Cards open the item; "Mark done…" offers log / link / done-without-record.
  */
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'

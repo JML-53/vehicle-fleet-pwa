@@ -45,6 +45,7 @@ function usePendingWorkOpen() {
         .from('pending_work_open')
         .select('*')
         .in('priority', ['high'])
+        .order('vehicle_name')      // the view no longer sorts (old def: priority, vehicle)
         .limit(10)
       if (error) throw error
       return data
