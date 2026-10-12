@@ -28,10 +28,11 @@ Replaces `roadmap-task-clusters-0920.md` (kept for history). The live roadmap in
 | B-2 Modifications from service_records | new · low | Reuse 9.3's "one event, one record" approach |
 | 20 Multiple feedback entries per item | deferred · low | Joe's design is sound; also give Claude's impl_notes dated entries. Pairs with 29's dev advisor |
 | 9.1 Link old source documents | deferred · low | 9.5 covers new records; only pre-upload history remains |
-| 30 Filter by vehicle on Pending Work page | new | Added by Joe — not yet reviewed |
-| 31 Dashboard Refinement | new | Added by Joe — not yet reviewed |
-| 32 Manage workflow | new | Added by Joe — not yet reviewed |
-| 33 Major dependency upgrades (React Router 7, Tailwind 4, Vite 8, vite-plugin-pwa 2) | new · low | Remaining npm-audit work; React Router first (runtime). See Housekeeping |
+| 30 Filter by vehicle on Pending Work page | ready_for_review | Built + verified 10/12; Joe to test and approve |
+| **32** Manage workflow | partial · medium · **phase 1 live 10/12** | Mockups approved. Schema live (`20261015_workflow_sources_sessions.sql`, test 21/21). **Joe to review** `supabase/scripts/20261015_workflow_cleanup.sql` (A–D active, E/F optional). Next: phase 2 UI (cards, split/merge, sessions + close-out), then Plan board |
+| **31** Dashboard Refinement | new · high | Options in impl_notes (attention strip, one Vehicles table with mileage, tabbed Work panel, two-column on wide screens). Built after 32 phase 1–2; mockups together with 32 |
+| 9.6 Link documents to visits, parts, specs, modifications, registrations | new · medium | From Joe's 9.2 feedback (10/12) |
+| 33 Major dependency upgrades (React Router 7, Tailwind 4, Vite 8, vite-plugin-pwa 2) | new · medium | Remaining npm-audit work; React Router first (runtime). See Housekeeping |
 | **34** Local Supabase dev environment in Docker (+ learning path) | new · medium | **Do before 29.** Joe installs Docker Desktop + WSL2; then baseline (live has no migration history, and migration file versions collide — fix before any `db push`), seed data, local/live switching, local function testing, written workflow + tutorial |
 
 ## Item 29 — open questions for Joe
@@ -48,6 +49,8 @@ Proposed phases: (1) mechanic chat with vehicle context + web search → (2) voi
 Design guardrails already agreed in principle: Claude calls only from Edge Functions (key never in the browser); the dev advisor reads through narrow RPCs (no arbitrary SQL) and every fix needs approval through normal app paths (audit log + permissions apply); safety-critical specs (brakes, jacking, fuel, airbags, torque values) are cited and flagged when uncertain.
 
 ## Housekeeping backlog
+
+- **Rover data fix (pending Joe's review):** `supabase/scripts/20261012_rover_link_inspection_repairs.sql` links the split tires/brake items to the 09/24 failed safety inspection so the passing re-test closes them (line 3 duplicate: Joe picks 3a, 3b or neither).
 
 - Schema snapshot (Joe chose the exact dump): folded into item 34 — once Docker is installed, `npx supabase db pull` writes the baseline migration and `npx supabase db dump --schema public -f supabase/schema.sql` the reference dump. Until then, `npx supabase db query --linked` against the catalog works without Docker.
 - **Never run `npx supabase db push` before item 34's baseline:** the live project has no migration history, so push would try to re-run all 23 migrations.
