@@ -51,7 +51,7 @@ Design guardrails already agreed in principle: Claude calls only from Edge Funct
 
 - Schema snapshot (Joe chose the exact dump): folded into item 34 — once Docker is installed, `npx supabase db pull` writes the baseline migration and `npx supabase db dump --schema public -f supabase/schema.sql` the reference dump. Until then, `npx supabase db query --linked` against the catalog works without Docker.
 - **Never run `npx supabase db push` before item 34's baseline:** the live project has no migration history, so push would try to re-run all 23 migrations.
-- Optional: let `trg_roadmap_a_member_guard` treat `auth.uid() IS NULL` (CLI/service) as trusted, like `profiles_role_guard`, so roadmap handoffs could also run from the CLI.
+- ~~Roadmap guard trusts the CLI/service context~~ — done 2026-10-12 (`20261014_roadmap_guard_service_context.sql`); handoffs now work from the CLI.
 - npm scripts for function deploy / schema dump.
 - `npm audit`: Joe ran the safe `npm audit fix` on 2026-10-12 (16 packages changed; build passes). **12 findings remain (6 high, 6 moderate) → roadmap item 33:**
   - **React Router 6 → 7 — runtime code that reaches phones; do first.** Low practical risk here (internal links only, no SSR), but it's the only remaining fix in shipped code.
