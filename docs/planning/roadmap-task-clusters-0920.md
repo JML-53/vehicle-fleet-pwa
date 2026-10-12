@@ -1,5 +1,7 @@
 # Roadmap Task Clusters
 
+> **Superseded 2026-10-12 by [status.md](status.md).** All clusters were built and approved except item 10's enum half, 2 and B-2 (still open); kept as the record of the original dependency analysis.
+
 Source: `../Archive/roadmap_export 0920-00.json` (41 items, exported 2026-09-20 23:12 UTC)
 Scope: the 13 open items (status not `approved`/`deferred`)
 
