@@ -203,7 +203,8 @@ export async function createInspectionRepairItem({ vehicleId, fulfillmentId, ins
     priority:         'high',
     status:           'pending',
     identified_date:  inspectionDate,
-    source:           `Failed ${label} inspection ${inspectionDate}`,
+    // MM/DD/YYYY to match the existing Source entries (and the 10/11 backfill)
+    source:           `Failed ${label} inspection ${inspectionDate.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$2/$3/$1')}`,
     assigned_shop_id: shopId || null,
     source_inspection_fulfillment_id: fulfillmentId,
   }).select('id').single()
