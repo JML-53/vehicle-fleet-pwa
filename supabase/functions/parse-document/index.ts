@@ -36,12 +36,16 @@ const PRIORITIES    = ["high", "medium", "low", "watch", "conditional"]
 const INSP_TYPES    = ["safety", "emissions"]
 const INSP_RESULTS  = ["pass", "fail"]
 
-// ── Output schema (strict: every property required, nullables explicit) ─────
+// ── Output schema ────────────────────────────────────────────────────────────
+// Structured outputs cap how many fields may use union types (e.g. a nullable
+// ["string","null"]), so the schema has NONE: unknown values come back as "",
+// amounts/mileage as plain number strings, and the inspection is always present
+// with a `present` flag. normalize() turns that back into nulls and numbers, so
+// the app sees the same shape as before.
 
-const str  = { type: ["string", "null"] }
-const num  = { type: ["number", "null"] }
-const int  = { type: ["integer", "null"] }
-const oneOf = (values: string[]) => ({ anyOf: [{ type: "string", enum: values }, { type: "null" }] })
+const str  = { type: "string" }            // "" = not shown on the document
+const num  = { type: "string" }            // "123.45" or ""  → number | null
+const int  = { type: "string" }            // "86644"  or ""  → integer | null
 const obj  = (properties: Record<string, unknown>) => ({
   type: "object", additionalProperties: false, properties, required: Object.keys(properties),
 })
@@ -49,7 +53,7 @@ const obj  = (properties: Record<string, unknown>) => ({
 function buildSchema(categories: string[], vehicleIds: string[]) {
   return obj({
     document: obj({
-      vehicle_id:    oneOf(vehicleIds),
+      vehicle_id:    { type: "string", enum: [...vehicleIds, ""] },
       document_type: { type: "string", enum: DOC_TYPES },
       document_date: str,
       description:   { type: "string" },
@@ -89,19 +93,15 @@ function buildSchema(categories: string[], vehicleIds: string[]) {
         },
       }),
     },
-    inspection: {
-      anyOf: [
-        { type: "null" },
-        obj({
-          inspection_type: { type: "string", enum: INSP_TYPES },
-          result:          { type: "string", enum: INSP_RESULTS },
-          inspection_date: str,
-          report_number:   str,
-          repairs_needed:  str,
-          record_index:    int,
-        }),
-      ],
-    },
+    inspection: obj({
+      present:         { type: "boolean" },
+      inspection_type: { type: "string", enum: [...INSP_TYPES, ""] },
+      result:          { type: "string", enum: [...INSP_RESULTS, ""] },
+      inspection_date: str,
+      report_number:   str,
+      repairs_needed:  str,
+      record_index:    int,
+    }),
     diagnostic_codes: {
       type: "array",
       items: obj({ code: { type: "string" }, description: str }),
@@ -119,13 +119,13 @@ function buildSchema(categories: string[], vehicleIds: string[]) {
 
 function buildPrompt(vehicleList: string, knownVehicle: string | null) {
   return `\
-Read this vehicle document (receipt, invoice, work order, inspection report, estimate, parts-store receipt, registration, photo, or manual) for a family fleet and extract everything useful. The family reviews your output before anything is saved, so leave a field null when the document doesn't show it rather than guessing.
+Read this vehicle document (receipt, invoice, work order, inspection report, estimate, parts-store receipt, registration, photo, or manual) for a family fleet and extract everything useful. The family reviews your output before anything is saved, so leave a field as an empty string "" when the document doesn't show it rather than guessing. Write dates as YYYY-MM-DD, money as a plain number like 123.45 (no $ or commas), and mileage as digits only.
 
 Fleet vehicles (id — description):
 ${vehicleList}
 ${knownVehicle ? `\nThe user opened this upload from vehicle ${knownVehicle}; choose it unless the document clearly names a different vehicle.\n` : ""}
 document
-- vehicle_id: match on VIN, plate, year/make/model, or the name written on the document. Null if you can't tell.
+- vehicle_id: match on VIN, plate, year/make/model, or the name written on the document. "" if you can't tell.
 - document_type: what kind of document this is. description: one short line a person would recognise it by (e.g. "NTB brake job, front pads & rotors").
 
 visit (the shop visit or purchase the document records)
@@ -138,9 +138,10 @@ records (one per distinct labor operation or category of parts)
 - Credits or discounts are negative numbers.
 - Leave records empty for documents with no service work (registration, photo, manual).
 
-inspection (only for a state safety or emissions inspection; otherwise null)
+inspection
+- present: true only for a state safety or emissions inspection; otherwise false (and leave the other inspection fields "").
 - result "fail" for a rejection or failure. repairs_needed: what must be fixed to pass, including any trouble codes.
-- record_index: the 0-based index of the record that is the inspection itself.
+- record_index: the 0-based index (as digits) of the record that is the inspection itself.
 
 diagnostic_codes: every OBD-II / trouble code observed (e.g. P0300), with its description if given.
 
@@ -234,7 +235,7 @@ serve(async (req) => {
     const text = response.content.find((b: { type: string }) => b.type === "text") as { text?: string } | undefined
     if (!text?.text) return fail("The AI returned no data.")
 
-    return json({ success: true, data: JSON.parse(text.text), model: response.model })
+    return json({ success: true, data: normalize(JSON.parse(text.text)), model: response.model })
   } catch (err) {
     if (err instanceof Anthropic.APIError) {
       return fail(`AI service error ${err.status ?? ""}: ${err.message}`)
@@ -244,6 +245,77 @@ serve(async (req) => {
 })
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+// "" → null; number strings → numbers. Restores the shape the app expects.
+const s = (v: unknown) => (typeof v === "string" && v.trim() !== "" ? v.trim() : null)
+const n = (v: unknown) => {
+  const t = s(v)?.replace(/[$,\s]/g, "")
+  const x = t != null ? Number(t) : NaN
+  return Number.isFinite(x) ? x : null
+}
+const i = (v: unknown) => { const x = n(v); return x == null ? null : Math.round(x) }
+
+// deno-lint-ignore no-explicit-any
+function normalize(d: any) {
+  const insp = d.inspection
+  return {
+    document: {
+      vehicle_id:    s(d.document?.vehicle_id),
+      document_type: d.document?.document_type || "other",
+      document_date: s(d.document?.document_date),
+      description:   s(d.document?.description) ?? "",
+    },
+    visit: {
+      title:          s(d.visit?.title) ?? "",
+      visit_date:     s(d.visit?.visit_date),
+      shop_name:      s(d.visit?.shop_name),
+      work_order:     s(d.visit?.work_order),
+      invoice_number: s(d.visit?.invoice_number),
+      technician:     s(d.visit?.technician),
+      total_cost:     n(d.visit?.total_cost),
+      mileage:        i(d.visit?.mileage),
+      notes:          s(d.visit?.notes),
+    },
+    // deno-lint-ignore no-explicit-any
+    records: (d.records ?? []).map((r: any) => ({
+      title:       s(r.title) ?? "",
+      category:    r.category || "other",
+      description: s(r.description),
+      labor_cost:  n(r.labor_cost),
+      parts_cost:  n(r.parts_cost),
+      total_cost:  n(r.total_cost),
+      notes:       s(r.notes),
+      // deno-lint-ignore no-explicit-any
+      parts: (r.parts ?? []).map((p: any) => ({
+        part_name:    s(p.part_name) ?? "",
+        part_number:  s(p.part_number),
+        manufacturer: s(p.manufacturer),
+        vendor:       s(p.vendor),
+        quantity:     n(p.quantity) ?? 1,
+        unit_cost:    n(p.unit_cost),
+        total_cost:   n(p.total_cost),
+      })),
+    })),
+    inspection: insp?.present && insp.inspection_type && insp.result
+      ? {
+          inspection_type: insp.inspection_type,
+          result:          insp.result,
+          inspection_date: s(insp.inspection_date),
+          report_number:   s(insp.report_number),
+          repairs_needed:  s(insp.repairs_needed),
+          record_index:    i(insp.record_index),
+        }
+      : null,
+    // deno-lint-ignore no-explicit-any
+    diagnostic_codes: (d.diagnostic_codes ?? []).filter((c: any) => s(c.code))
+      // deno-lint-ignore no-explicit-any
+      .map((c: any) => ({ code: s(c.code), description: s(c.description) })),
+    // deno-lint-ignore no-explicit-any
+    recommended_work: (d.recommended_work ?? []).filter((w: any) => s(w.title))
+      // deno-lint-ignore no-explicit-any
+      .map((w: any) => ({ title: s(w.title), description: s(w.description), priority: w.priority || "medium" })),
+  }
+}
 
 // Handled errors return 200 so supabase.functions.invoke surfaces the message
 function fail(error: string) {
