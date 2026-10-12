@@ -135,6 +135,41 @@ export default function UploadDocument() {
     onError: () => setUploadProgress(null),
   })
 
+  // ── Item 9: read first, review once ───────────────────────────────────────
+  // Upload the file, have the AI read it right away, then open the review
+  // screen pre-filled with everything. Nothing is saved to the database until
+  // the user confirms there.
+  const canRead = !!selectedFile && PARSEABLE_MIME.includes(selectedFile.type)
+  const readMutation = useMutation({
+    mutationFn: async () => {
+      setUploadProgress('Uploading…')
+      const safeName    = selectedFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const storagePath = `vehicles/${vehicleId || 'unassigned'}/${Date.now()}_${safeName}`
+      const { error: storageError } = await supabase.storage
+        .from('documents')
+        .upload(storagePath, selectedFile, { cacheControl: '3600', upsert: false })
+      if (storageError) throw new Error(`Upload failed: ${storageError.message}`)
+
+      setUploadProgress('Reading the document… (usually 10–30 seconds)')
+      const { data, error } = await supabase.functions.invoke('parse-document', {
+        body: { storagePath, mimeType: selectedFile.type, filename: selectedFile.name, vehicleId: vehicleId || null },
+      })
+      if (error || !data?.success) {
+        await supabase.storage.from('documents').remove([storagePath])   // no orphaned file
+        throw new Error(data?.error || error?.message || 'The AI could not read this document.')
+      }
+      return {
+        parsed: data.data,
+        upload: { storagePath, filename: selectedFile.name, mimeType: selectedFile.type, size: selectedFile.size },
+      }
+    },
+    onSuccess: ({ parsed, upload }) => {
+      setUploadProgress(null)
+      navigate('/documents/review', { state: { parsed, upload, vehicleId: vehicleId || null } })
+    },
+    onError: () => setUploadProgress(null),
+  })
+
   async function handleAnalyze() {
     if (!uploadedDoc?.id) return
     setParseState('loading')
@@ -306,7 +341,7 @@ export default function UploadDocument() {
         {/* Vehicle picker — only when accessed from fleet docs page */}
         {!vehicleIdParam && (
           <div className="card space-y-2">
-            <h2 className="card-header">Vehicle</h2>
+            <h2 className="card-header">Vehicle <span className="font-normal normal-case tracking-normal text-slate-400 text-xs">(optional with Read with AI)</span></h2>
             <select
               value={pickedVehicleId}
               onChange={e => setPickedVehicleId(e.target.value)}
@@ -382,9 +417,32 @@ export default function UploadDocument() {
           )}
         </div>
 
+        {/* Read with AI — the main path (item 9) */}
+        {canRead && (
+          <div className="card space-y-2 border border-amber-200 bg-amber-50/50">
+            <button type="button" onClick={() => readMutation.mutate()}
+              disabled={readMutation.isPending || uploadMutation.isPending}
+              className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-400
+                         disabled:opacity-60 text-white font-semibold text-sm px-4 py-3 rounded-lg transition-colors">
+              {readMutation.isPending
+                ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Reading…</>
+                : <><Sparkles size={15} /> Read with AI</>}
+            </button>
+            <p className="text-xs text-slate-500 text-center">
+              Fills in the vehicle, date, visit, line items, inspection result, trouble codes and
+              recommended work for you to review. Nothing is saved until you confirm.
+            </p>
+            {readMutation.isError && (
+              <p className="text-xs text-red-600 bg-red-50 rounded px-2 py-1.5">
+                {readMutation.error.message} You can still enter the details below.
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Metadata */}
         <div className="card space-y-3">
-          <h2 className="card-header">Details</h2>
+          <h2 className="card-header">{canRead ? 'Or enter details yourself' : 'Details'}</h2>
           <div>
             <label className="field-label">Document Type</label>
             <select {...register('document_type')} className="field-select">
@@ -392,11 +450,6 @@ export default function UploadDocument() {
                 <option key={t.value} value={t.value}>{t.label}</option>
               ))}
             </select>
-            {docTypeMeta?.canParse && selectedFile && PARSEABLE_MIME.includes(selectedFile.type) && (
-              <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
-                <Sparkles size={11} /> AI analysis available for this document type after upload.
-              </p>
-            )}
           </div>
           <div>
             <label className="field-label">Document Date</label>
@@ -429,7 +482,7 @@ export default function UploadDocument() {
             disabled={uploadMutation.isPending || !selectedFile || !vehicleId}
             className="btn-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {uploadMutation.isPending ? 'Uploading…' : 'Upload Document'}
+            {uploadMutation.isPending ? 'Uploading…' : canRead ? 'Upload without reading' : 'Upload Document'}
           </button>
           <button type="button" onClick={() => navigate(-1)} className="btn-secondary">
             Cancel

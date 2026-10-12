@@ -6,6 +6,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { format, parseISO } from 'date-fns'
 import { Wrench, User, CheckCircle2, CircleDashed, Circle, ShieldX } from 'lucide-react'
 import { PRIORITY_META, STATUS_META, CLOSED, resolvingLink } from '@/lib/pendingWork'
+import SourceDocLink from '@/components/SourceDocLink'
 
 function recordLink(vehicleId, rec) {
   if (!rec) return null
@@ -57,6 +58,9 @@ export default function PendingCard({ item, people = {}, vehicleName, onDone }) 
       )}
 
       <InspectionSourceLink item={item} />
+      {item.source_document_id && (
+        <div className="mb-1"><SourceDocLink documentId={item.source_document_id} /></div>
+      )}
 
       {resolved && (
         <p className="text-xs text-green-700 mb-1 flex items-center gap-1">

@@ -12,6 +12,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm, useFieldArray, Controller } from 'react-hook-form'
 import { supabase } from '@/lib/supabase'
 import DeleteOrRequest from '@/components/DeleteOrRequest'
+import SourceDocLink from '@/components/SourceDocLink'
 import { useEnumValues } from '@/lib/enums'
 import MaintenanceLinkPicker from '@/components/MaintenanceLinkPicker'
 import { syncMaintenanceLinks, invalidateMaintenance } from '@/lib/maintenanceMatch'
@@ -32,7 +33,7 @@ export default function AddEditServiceRecord() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('service_records')
-        .select('*, parts(*), maintenance_fulfillments(maintenance_schedule_id), pending_work_links(pending_work_id, resolves)')
+        .select('*, parts(*), maintenance_fulfillments(maintenance_schedule_id), pending_work_links(pending_work_id, resolves), service_visits(source_document_id)')
         .eq('id', recordId)
         .single()
       if (error) throw error
@@ -186,7 +187,11 @@ export default function AddEditServiceRecord() {
         </button>
         <h1 className="text-lg font-bold">Edit Service Record</h1>
         {existing && (
-          <p className="text-primary-200 text-sm mt-0.5">{existing.title}</p>
+          <>
+            <p className="text-primary-200 text-sm mt-0.5">{existing.title}</p>
+            <SourceDocLink documentId={existing.service_visits?.source_document_id}
+              className="text-primary-200 hover:text-white decoration-primary-400 mt-1" />
+          </>
         )}
       </div>
 

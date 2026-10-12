@@ -7,6 +7,7 @@ import { useVehiclePendingWork, CLOSED } from '@/lib/pendingWork'
 import { useProfiles } from '@/lib/changeLog'
 import { useStoredState } from '@/lib/useStoredState'
 import PendingCard, { PendingLinkBadges } from '@/components/PendingCard'
+import SourceDocLink from '@/components/SourceDocLink'
 import CompletePendingSheet from '@/components/CompletePendingSheet'
 import { format, parseISO, isBefore, addDays } from 'date-fns'
 import { Plus, ArrowLeft, Gauge, Pencil, Upload, Link2, ChevronDown, ChevronUp, ShieldCheck, ShieldX, AlertTriangle, Clock } from 'lucide-react'
@@ -42,7 +43,7 @@ const useServiceHistory = id => useQuery({
       .from('service_records')
       .select(`
         *,
-        service_visits(visit_date, work_order, invoice_number, technician, total_cost, shops(name, phone)),
+        service_visits(visit_date, work_order, invoice_number, technician, total_cost, source_document_id, shops(name, phone)),
         pending_work_links(resolves, pending_work(id, title)),
         parts(id, part_name, part_number, manufacturer, vendor, order_number, quantity, unit_cost, total_cost)
       `)
@@ -232,6 +233,7 @@ function ServiceHistoryTab({ vehicleId }) {
             <p className="text-xs text-slate-600 mb-2 leading-relaxed">{r.description}</p>
           )}
           <PendingLinkBadges links={r.pending_work_links} vehicleId={vehicleId} />
+          <SourceDocLink documentId={r.service_visits?.source_document_id} className="mb-2" />
 
           <div className="flex items-center justify-between text-xs text-slate-500">
             <div className="flex items-center gap-4">
@@ -289,16 +291,26 @@ function ServiceVisitsTab({ vehicleId }) {
           >
             <div className="flex items-start justify-between gap-2">
               <div>
+                {/* Item 24: what the visit was for, then when/where */}
                 <p className="font-semibold text-slate-800 text-sm">
-                  {visit.visit_date ? format(parseISO(visit.visit_date), 'MMM d, yyyy') : '—'}
-                  {visit.shops?.name ? ` — ${visit.shops.name}` : ''}
+                  {visit.title || (visit.visit_date ? format(parseISO(visit.visit_date), 'MMM d, yyyy') : '—')}
                 </p>
+                {visit.title && (
+                  <p className="text-xs text-slate-600 mt-0.5">
+                    {visit.visit_date ? format(parseISO(visit.visit_date), 'MMM d, yyyy') : '—'}
+                    {visit.shops?.name ? ` · ${visit.shops.name}` : ''}
+                  </p>
+                )}
+                {!visit.title && visit.shops?.name && (
+                  <p className="text-xs text-slate-600 mt-0.5">{visit.shops.name}</p>
+                )}
                 <p className="text-xs text-slate-500 mt-0.5">
                   {records.length} service item{records.length !== 1 ? 's' : ''}
                   {visit.work_order ? ` · WO ${visit.work_order}` : ''}
                   {visit.invoice_number ? ` · Inv ${visit.invoice_number}` : ''}
                   {visit.total_cost != null ? ` · $${Number(visit.total_cost).toLocaleString()}` : ''}
                 </p>
+                <SourceDocLink documentId={visit.source_document_id} className="mt-1" />
               </div>
               <span className="text-slate-400 text-lg leading-none mt-0.5">
                 {isOpen ? '▲' : '▼'}
@@ -805,7 +817,10 @@ function DiagnosticTab({ vehicleId }) {
                   <td className="text-slate-600">{code.description || '—'}</td>
                   <td>{code.pulled_date ? format(parseISO(code.pulled_date), 'MMM d, yyyy') : '—'}</td>
                   <td>{code.cleared_date ? format(parseISO(code.cleared_date), 'MMM d, yyyy') : <span className="text-amber-600">Open</span>}</td>
-                  <td className="text-slate-500 text-xs">{code.resolution || '—'}</td>
+                  <td className="text-slate-500 text-xs">
+                    {code.resolution || '—'}
+                    <SourceDocLink documentId={code.document_id} label="Source" className="block mt-0.5" />
+                  </td>
                   <td>
                     <button onClick={() => navigate(`/vehicles/${vehicleId}/add-diagnostic?edit=${code.id}`)}
                       className="text-slate-400 hover:text-primary-600 p-1"><Pencil size={12} /></button>
@@ -953,6 +968,7 @@ function InspectionRow({ row }) {
               {row.report_number && <span>Sticker: <span className="text-slate-700">{row.report_number}</span></span>}
               {row.result && <span>Result: <span className="text-slate-700 capitalize">{row.result}</span></span>}
               {row.mileage_at_inspection && <span>Mileage: <span className="text-slate-700">{Number(row.mileage_at_inspection).toLocaleString()}</span></span>}
+              <SourceDocLink documentId={row.document_id} label="Report" />
             </div>
             {repairs.map(p => (
               <Link key={p.id} to={`/vehicles/${row.vehicle_id}/add-pending?edit=${p.id}`}

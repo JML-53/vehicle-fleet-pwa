@@ -85,6 +85,7 @@ export default function App() {
         <Route path="maintenance"        element={<MaintenanceSchedulePage />} />
         <Route path="documents"            element={<DocumentsPage />} />
         <Route path="documents/upload"   element={<UploadDocument />} />
+        <Route path="documents/review"   element={<AddEditServiceVisit />} />
         <Route path="documents/:docId"   element={<DocumentDetail />} />
 
         {/* Dev Roadmap */}

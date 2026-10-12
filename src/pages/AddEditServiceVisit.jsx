@@ -25,8 +25,15 @@ import { useEnumValues } from '@/lib/enums'
 import MaintenanceLinkPicker from '@/components/MaintenanceLinkPicker'
 import { syncMaintenanceLinks, invalidateMaintenance } from '@/lib/maintenanceMatch'
 import PendingLinkPicker from '@/components/PendingLinkPicker'
-import { syncPendingLinks, invalidatePending } from '@/lib/pendingWork'
-import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronRight, Sparkles, X, AlertTriangle, ClipboardList } from 'lucide-react'
+import { syncPendingLinks, invalidatePending, useVehiclePendingWork } from '@/lib/pendingWork'
+import AlsoFoundPanel from '@/components/AlsoFoundPanel'
+import { saveUploadedDocument, applyFindings, defaultFindings, defaultVisitTitle } from '@/lib/documentImport'
+import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronRight, Sparkles, X, AlertTriangle, ClipboardList, FileText } from 'lucide-react'
+
+const DOC_TYPES = [
+  ['receipt', 'Receipt'], ['estimate', 'Estimate / quote'], ['inspection_report', 'Inspection report'],
+  ['registration', 'Registration / title'], ['photo', 'Photo'], ['manual', 'Manual / guide'], ['other', 'Other'],
+]
 
 const EMPTY_RECORD = () => ({
   _id:         null,
@@ -260,9 +267,10 @@ function RecordSection({ recIdx, register, control, remove, isOnly, vehicleId, i
 /**
  * Convert a parsed document record (from Edge Function) into a form record shape.
  */
-function parsedRecordToForm(pr) {
+function parsedRecordToForm(pr, index) {
   return {
     _id:         null,
+    _parsedIndex: index,   // lets an "Also found" inspection point at this record after save
     title:       pr.title       || '',
     category:    pr.category    || 'other',
     description: pr.description || '',
@@ -287,7 +295,7 @@ function parsedRecordToForm(pr) {
 }
 
 export default function AddEditServiceVisit() {
-  const { id: vehicleId, visitId } = useParams()
+  const { id: routeVehicleId, visitId } = useParams()
   const navigate   = useNavigate()
   const location   = useLocation()
   const qc         = useQueryClient()
@@ -297,10 +305,39 @@ export default function AddEditServiceVisit() {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deletebusy,    setDeleteBusy]    = useState(false)
 
-  // State passed from UploadDocument after AI parse
-  const parsedState   = location.state?.parsed      || null   // { visit, records }
-  const parsedDocId   = location.state?.documentId  || null
+  // State passed from UploadDocument / DocumentDetail after AI parse
+  const parsedState   = location.state?.parsed      || null   // { document, visit, records, inspection, … }
+  const parsedDocId   = location.state?.documentId  || null   // re-parse of an existing document
+  const upload        = location.state?.upload      || null   // review mode: file uploaded, not yet saved
   const [parsedBanner, setParsedBanner] = useState(!!parsedState)
+
+  // Review mode (item 9): the AI's vehicle guess can be changed before saving
+  const [docVehicleId, setDocVehicleId] = useState(
+    parsedState?.document?.vehicle_id || location.state?.vehicleId || routeVehicleId || '')
+  const vehicleId = upload ? docVehicleId : routeVehicleId
+  const [docMeta, setDocMeta] = useState(() => ({
+    document_type: parsedState?.document?.document_type || 'receipt',
+    document_date: parsedState?.document?.document_date || parsedState?.visit?.visit_date || '',
+    description:   parsedState?.document?.description || '',
+  }))
+  // Registration, photos, manuals… have no service work: save just the document
+  const [docOnly, setDocOnly] = useState(!!upload && !(parsedState?.records?.length))
+  const [findings, setFindings] = useState(null)
+  const { data: vehicleOptions = [] } = useQuery({
+    queryKey: ['vehicles_list'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('vehicles').select('id, name, year, make, model').order('name')
+      if (error) throw error
+      return data
+    },
+    enabled: !!upload,
+  })
+  const { data: vehiclePending } = useVehiclePendingWork(parsedState && !isEditing ? vehicleId : null)
+  useEffect(() => {
+    if (parsedState && !isEditing && vehiclePending && !findings) {
+      setFindings(defaultFindings(parsedState, vehiclePending))
+    }
+  }, [parsedState, vehiclePending]) // eslint-disable-line react-hooks/exhaustive-deps
   // State passed from a pending work item ("Log service visit")
   const fromPending   = location.state?.fromPending || null
 
@@ -336,8 +373,9 @@ export default function AddEditServiceVisit() {
     enabled: isEditing,
   })
 
-  const { register, control, handleSubmit, reset, watch, setValue } = useForm({
+  const { register, control, handleSubmit, reset, watch, setValue, getValues } = useForm({
     defaultValues: {
+      title:          '',
       visit_date:     new Date().toISOString().split('T')[0],
       shop_id:        '',
       visit_type:     'shop',
@@ -371,16 +409,17 @@ export default function AddEditServiceVisit() {
       if (match) matchedShopId = match.id
     }
 
-    // Extract mileage from notes if present (e.g. "Mileage: 89,940")
-    let mileageStr = ''
-    if (v.notes) {
+    // Mileage: the parser returns it as a number; older results had it in notes
+    let mileageStr = v.mileage != null ? String(v.mileage) : ''
+    if (!mileageStr && v.notes) {
       const m = v.notes.match(/mileage[:\s]+([0-9,]+)/i)
       if (m) mileageStr = m[1].replace(/,/g, '')
     }
 
-    const parsedRecords = (parsedState.records || []).map(parsedRecordToForm)
+    const parsedRecords = (parsedState.records || []).map((r, i) => parsedRecordToForm(r, i))
 
     reset({
+      title:          v.title          || '',
       visit_date:     v.visit_date     || new Date().toISOString().split('T')[0],
       shop_id:        matchedShopId,
       visit_type:     'shop',
@@ -398,6 +437,7 @@ export default function AddEditServiceVisit() {
   useEffect(() => {
     if (!fromPending || isEditing || parsedState) return
     reset({
+      title:          fromPending.title,
       visit_date:     new Date().toISOString().split('T')[0],
       shop_id:        fromPending.assigned_shop_id || '',
       visit_type:     fromPending.shop_is_self ? 'self' : 'shop',
@@ -419,6 +459,7 @@ export default function AddEditServiceVisit() {
   useEffect(() => {
     if (existing) {
       reset({
+        title:          existing.title           || '',
         visit_date:     existing.visit_date      || '',
         shop_id:        existing.shop_id         || '',
         visit_type:     existing.visit_type      || 'shop',
@@ -458,6 +499,28 @@ export default function AddEditServiceVisit() {
   const mutation = useMutation({
     mutationFn: async (formData) => {
       let resolvedVisitId = visitId
+      if (upload && !vehicleId) throw new Error('Choose which vehicle this document is for.')
+
+      // 0. Review mode: save the uploaded document first (everything links to it)
+      const documentId = upload
+        ? await saveUploadedDocument({
+            upload, vehicleId,
+            documentType: docMeta.document_type,
+            documentDate: docMeta.document_date || formData.visit_date,
+            description:  docMeta.description,
+          })
+        : parsedDocId
+      const mileageNum = formData.mileage ? parseInt(formData.mileage, 10) : null
+      const findingsArgs = {
+        findings, vehicleId, documentId,
+        visitDate: formData.visit_date, shopId: formData.shop_id || null, mileage: mileageNum,
+      }
+
+      // Document only (registration, photo, manual…): no visit or records
+      if (formData._docOnly) {
+        await applyFindings(findingsArgs)   // an inspection may exist without a service record
+        return { docOnly: true }
+      }
 
       // 1. Mileage log entry (new visits only — editing skips this)
       let mileageLogId = null
@@ -478,6 +541,8 @@ export default function AddEditServiceVisit() {
       // 2. Upsert visit
       const visitPayload = {
         vehicle_id:         vehicleId,
+        // Item 24: what the visit was for; defaults to the service items joined
+        title:              formData.title?.trim() || defaultVisitTitle(formData.records) || null,
         visit_date:         formData.visit_date,
         visit_type:         formData.visit_type,
         shop_id:            formData.shop_id        || null,
@@ -487,7 +552,7 @@ export default function AddEditServiceVisit() {
         total_cost:         formData.total_cost      ? parseFloat(formData.total_cost) : null,
         notes:              formData.notes           || null,
         // Link back to the source document when created from AI parse
-        ...(!isEditing && parsedDocId ? { source_document_id: parsedDocId } : {}),
+        ...(!isEditing && documentId ? { source_document_id: documentId } : {}),
       }
 
       if (isEditing) {
@@ -515,6 +580,8 @@ export default function AddEditServiceVisit() {
       }
 
       // Upsert each record + its parts
+      const recordIdByIndex = {}        // parsed record index → saved id ("Also found" inspection)
+      let diagnosticRecordId = null     // where trouble codes attach
       for (const rec of formData.records.filter(r => r.title?.trim())) {
         const recPayload = {
           vehicle_id:   vehicleId,
@@ -527,7 +594,7 @@ export default function AddEditServiceVisit() {
           parts_cost:   rec.parts_cost   ? parseFloat(rec.parts_cost)  : null,
           total_cost:   rec.total_cost   ? parseFloat(rec.total_cost)  : null,
           notes:        rec.notes        || null,
-          source:       'manual',
+          ...(rec._id ? {} : { source: parsedState ? 'document_upload' : 'manual' }),
         }
 
         let recordId = rec._id
@@ -540,6 +607,8 @@ export default function AddEditServiceVisit() {
           if (error) throw error
           recordId = newRec.id
         }
+        if (rec._parsedIndex != null) recordIdByIndex[rec._parsedIndex] = recordId
+        if (rec.category === 'diagnostic' && !diagnosticRecordId) diagnosticRecordId = recordId
 
         // Parts for this record
         const existingPartIds  = rec._id
@@ -575,8 +644,18 @@ export default function AddEditServiceVisit() {
         await syncMaintenanceLinks(recordId, rec.maintenance_ids || [])
         await syncPendingLinks(recordId, rec.pending_links || [])
       }
+
+      // 4. "Also found" (items 9.3 / 9.4): inspection, trouble codes, recommended work
+      if (!isEditing && findings) {
+        await applyFindings({ ...findingsArgs, recordIdByIndex, diagnosticRecordId })
+      }
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ['documents_all'] })
+      qc.invalidateQueries({ queryKey: ['documents', vehicleId] })
+      qc.invalidateQueries({ queryKey: ['inspection_status'] })
+      qc.invalidateQueries({ queryKey: ['inspections', vehicleId] })
+      qc.invalidateQueries({ queryKey: ['diagnostics', vehicleId] })
       invalidateMaintenance(qc, vehicleId)
       invalidatePending(qc, vehicleId)
       qc.invalidateQueries({ queryKey: ['service_visit_full', visitId] })
@@ -584,7 +663,9 @@ export default function AddEditServiceVisit() {
       qc.invalidateQueries({ queryKey: ['service_visits',  vehicleId] })
       qc.invalidateQueries({ queryKey: ['mileage',         vehicleId] })
       qc.invalidateQueries({ queryKey: ['recent_service'] })
-      navigate(`/vehicles/${vehicleId}?tab=${fromPending ? 'pending' : 'visits'}`)
+      navigate(result?.docOnly
+        ? '/documents'
+        : `/vehicles/${vehicleId}?tab=${fromPending ? 'pending' : 'visits'}`)
     },
     onError: (err) => setServerError(err.message || 'Save failed.'),
   })
@@ -687,9 +768,63 @@ export default function AddEditServiceVisit() {
       <form onSubmit={handleSubmit(d => { setServerError(''); mutation.mutate(d) })}
             className="p-4 space-y-6 max-w-2xl mx-auto w-full">
 
+        {/* ---- Review mode: the uploaded document (item 9) ---- */}
+        {upload && (
+          <div className="card space-y-3 border border-primary-200">
+            <h2 className="card-header mb-0 flex items-center gap-1.5">
+              <FileText size={14} /> Document
+              <span className="font-normal normal-case tracking-normal text-slate-400 text-xs truncate">· {upload.filename}</span>
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="field-label">Vehicle *</label>
+                <select className={`field-select ${!vehicleId ? 'border-red-400' : ''}`} value={docVehicleId}
+                  onChange={e => { setDocVehicleId(e.target.value); setFindings(null) }}>
+                  <option value="">— choose vehicle —</option>
+                  {vehicleOptions.map(v => (
+                    <option key={v.id} value={v.id}>{v.name || `${v.year} ${v.make} ${v.model}`}</option>
+                  ))}
+                </select>
+                {parsedState?.document?.vehicle_id && parsedState.document.vehicle_id === docVehicleId && (
+                  <p className="text-xs text-slate-400 mt-0.5">Matched from the document</p>
+                )}
+              </div>
+              <div>
+                <label className="field-label">Document type</label>
+                <select className="field-select" value={docMeta.document_type}
+                  onChange={e => setDocMeta(m => ({ ...m, document_type: e.target.value }))}>
+                  {DOC_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="field-label">Document date</label>
+                <input type="date" className="field-input" value={docMeta.document_date}
+                  onChange={e => setDocMeta(m => ({ ...m, document_date: e.target.value }))} />
+              </div>
+              <div>
+                <label className="field-label">Description</label>
+                <input className="field-input" value={docMeta.description}
+                  onChange={e => setDocMeta(m => ({ ...m, description: e.target.value }))} />
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-slate-600">
+              <input type="checkbox" checked={docOnly} onChange={e => setDocOnly(e.target.checked)} />
+              No service visit: save just the document
+            </label>
+          </div>
+        )}
+
+        <div hidden={docOnly} className="space-y-6">
         {/* ---- Visit header ---- */}
         <div className="card space-y-4">
           <h2 className="card-header">Visit Details</h2>
+
+          <div>
+            <label className="field-label">Title</label>
+            <input className="field-input" {...register('title')}
+              placeholder="What the visit was for, e.g. Front brakes + alignment" />
+            <p className="text-xs text-slate-400 mt-0.5">Left blank, it's filled from the service items below.</p>
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -821,6 +956,10 @@ export default function AddEditServiceVisit() {
             />
           ))}
         </div>
+        </div>{/* end hidden={docOnly} */}
+
+        {/* ---- Also found (items 9.3 / 9.4) ---- */}
+        {!isEditing && <AlsoFoundPanel value={findings} onChange={setFindings} />}
 
         {serverError && (
           <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
@@ -829,10 +968,19 @@ export default function AddEditServiceVisit() {
         )}
 
         <div className="flex gap-3 pb-4">
-          <button type="submit" disabled={mutation.isPending}
-            className="flex-1 btn-primary py-3 text-base disabled:opacity-60">
-            {mutation.isPending ? 'Saving…' : isEditing ? 'Save Changes' : 'Save Visit'}
-          </button>
+          {docOnly ? (
+            // Visit fields are hidden — skip their validation and save the document
+            <button type="button" disabled={mutation.isPending}
+              onClick={() => { setServerError(''); mutation.mutate({ ...getValues(), _docOnly: true }) }}
+              className="flex-1 btn-primary py-3 text-base disabled:opacity-60">
+              {mutation.isPending ? 'Saving…' : 'Save Document'}
+            </button>
+          ) : (
+            <button type="submit" disabled={mutation.isPending}
+              className="flex-1 btn-primary py-3 text-base disabled:opacity-60">
+              {mutation.isPending ? 'Saving…' : isEditing ? 'Save Changes' : upload ? 'Save Document & Visit' : 'Save Visit'}
+            </button>
+          )}
           <button type="button" onClick={() => navigate(-1)} className="btn-secondary py-3 px-5">
             Cancel
           </button>

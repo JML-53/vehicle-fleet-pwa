@@ -6,30 +6,8 @@ import { supabase } from '@/lib/supabase'
 import DeleteOrRequest from '@/components/DeleteOrRequest'
 import { createInspectionRepairItem, invalidatePending } from '@/lib/pendingWork'
 import { ArrowLeft, ShieldX } from 'lucide-react'
-import { format, addMonths, addDays, endOfMonth, parseISO } from 'date-fns'
-
-// Virginia rule: inspection expires end of month, interval_months from inspection month
-function calcExpiryDate(inspectionDate, intervalMonths) {
-  if (!inspectionDate || !intervalMonths) return ''
-  const d = typeof inspectionDate === 'string' ? parseISO(inspectionDate) : inspectionDate
-  return format(endOfMonth(addMonths(d, intervalMonths)), 'yyyy-MM-dd')
-}
-
-const INTERVAL = { safety: 12, emissions: 24 }
-// Re-test window after a fail (item 28). Per-vehicle values live on
-// inspections.grace_days; these are the defaults (VA: 15-day rejection
-// sticker for safety, 14-day free re-test for emissions).
-const GRACE = { safety: 15, emissions: 14 }
-
-// Pass → VA end-of-month expiry; Fail → re-test-by date (date + grace days)
-function calcDueDate(inspectionDate, type, result, graceDays) {
-  if (!inspectionDate || !type) return ''
-  if (result === 'fail') {
-    const d = typeof inspectionDate === 'string' ? parseISO(inspectionDate) : inspectionDate
-    return format(addDays(d, graceDays ?? GRACE[type]), 'yyyy-MM-dd')
-  }
-  return calcExpiryDate(inspectionDate, INTERVAL[type])
-}
+import { format } from 'date-fns'
+import { INTERVAL, GRACE, TYPE_WORDS, calcExpiryDate, calcDueDate } from '@/lib/inspections'
 
 function useVehicle(id) {
   return useQuery({
@@ -190,6 +168,44 @@ export default function AddInspection() {
       } else {
         // Create mode: service_visit → service_record → inspection_fulfillments
 
+        // 0. One event, one record (item 9.3): if that day's visit already has a
+        //    record for this inspection (e.g. from the uploaded receipt), attach
+        //    to it instead of creating a duplicate visit + record.
+        const { data: sameDay, error: sdErr } = await supabase
+          .from('service_records')
+          .select('id, title, category, inspection_fulfillments(id)')
+          .eq('vehicle_id', vehicleId)
+          .eq('service_date', values.inspection_date)
+        if (sdErr) throw sdErr
+        const match = (sameDay || []).find(r =>
+          !r.inspection_fulfillments?.length &&
+          (r.category === 'inspection' || /inspect/i.test(r.title)) &&
+          TYPE_WORDS[values.inspection_type].test(r.title))
+        if (match) {
+          const inspectionId = template?.id
+            ?? (await supabase.from('inspections')
+                  .insert({ vehicle_id: vehicleId, inspection_type: values.inspection_type, interval_months: INTERVAL[values.inspection_type], grace_days: GRACE[values.inspection_type] })
+                  .select('id').single()).data?.id
+          const { data: newInf, error: infErr } = await supabase
+            .from('inspection_fulfillments')
+            .insert({
+              inspection_id:         inspectionId,
+              service_record_id:     match.id,
+              inspection_date:       values.inspection_date,
+              expiry_date:           values.expiry_date || null,
+              result:                values.result || null,
+              report_number:         values.report_number || null,
+              shop_id:               values.shop_id || null,
+              mileage_at_inspection: mileage,
+              notes:                 values.notes || null,
+            })
+            .select('id').single()
+          if (infErr) throw infErr
+          savedId = newInf.id
+        }
+      }
+
+      if (!isEditing && !savedId) {
         // 1. Create service visit
         const { data: visit, error: visitErr } = await supabase
           .from('service_visits')

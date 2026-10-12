@@ -1,20 +1,27 @@
 /**
- * parse-document — Supabase Edge Function
+ * parse-document — Supabase Edge Function (items 9, 9.3, 9.4, 24)
  *
- * Receives a document ID, downloads the file from Supabase Storage,
- * sends it to Claude for structured extraction, and returns a JSON
- * object ready to pre-populate the AddEditServiceVisit form.
+ * Reads a vehicle document (receipt, invoice, inspection report, estimate,
+ * parts-store receipt…) with Claude and returns structured data for the
+ * review screen: document details (incl. a vehicle guess), the service
+ * visit + line items, an inspection result, trouble codes and recommended
+ * follow-up work. Nothing is written to the database here — the user
+ * reviews everything first.
  *
- * Request body:
- *   { documentId: string, vehicleName: string }
+ * Request body (either form):
+ *   { documentId }                          — an existing documents row (re-parse)
+ *   { storagePath, mimeType, filename }     — a file just uploaded, not yet saved
+ *   optional: { vehicleId }                 — vehicle already known (route)
  *
  * Response:
- *   { success: true, data: { visit: {...}, records: [...] } }
- *   { success: false, error: string, raw?: string }
+ *   { success: true, data: { document, visit, records, inspection,
+ *                             diagnostic_codes, recommended_work } }
+ *   { success: false, error: string }
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import Anthropic from "npm:@anthropic-ai/sdk"
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -22,181 +29,226 @@ const CORS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 }
 
-const EXTRACTION_PROMPT = (vehicleName: string) => `\
-You are analyzing a vehicle service document (receipt, invoice, inspection report, work order, or auto-parts store receipt) for the vehicle: ${vehicleName}.
+const MODEL = "claude-opus-5-5"
 
-Extract ALL service information and return it as a single JSON object with this exact structure:
+const DOC_TYPES     = ["receipt", "estimate", "inspection_report", "registration", "photo", "manual", "other"]
+const PRIORITIES    = ["high", "medium", "low", "watch", "conditional"]
+const INSP_TYPES    = ["safety", "emissions"]
+const INSP_RESULTS  = ["pass", "fail"]
 
-{
-  "visit": {
-    "visit_date": "YYYY-MM-DD or null",
-    "shop_name": "name of the shop, garage, dealer, or parts store. Use 'Self / Owner' for DIY parts purchases with no labor shop.",
-    "work_order": "WO / RO / ticket number or null",
-    "invoice_number": "invoice, receipt, or confirmation number or null",
-    "technician": "technician or advisor name or null",
-    "total_cost": total amount paid as a number or null,
-    "notes": "vehicle mileage at service if shown, plus any other general notes"
-  },
-  "records": [
-    {
-      "title": "concise summary title for this line item (e.g. 'Engine Oil & Filter Change', 'Front Brake Pads & Rotors')",
-      "category": "one of exactly: oil_change | brakes | tires | suspension | electrical | ac_hvac | engine | transmission | inspection | registration | modification | diagnostic | fuel_system | cooling | other",
-      "description": "full description of the work performed or parts purchased for this line item",
-      "labor_cost": labor charge as a number or null,
-      "parts_cost": parts charge for this item as a number or null,
-      "total_cost": total for this line item as a number or null,
-      "notes": "any notes specific to this line item",
-      "parts": [
-        {
-          "part_name": "full part name as shown",
-          "part_number": "part or SKU number or null",
-          "manufacturer": "brand or manufacturer or null",
-          "vendor": "supplier or store or null",
-          "quantity": quantity as a number (default 1 if not shown),
-          "unit_cost": unit price as a number or null,
-          "total_cost": total cost for this part as a number or null
-        }
-      ]
-    }
-  ]
+// ── Output schema (strict: every property required, nullables explicit) ─────
+
+const str  = { type: ["string", "null"] }
+const num  = { type: ["number", "null"] }
+const int  = { type: ["integer", "null"] }
+const oneOf = (values: string[]) => ({ anyOf: [{ type: "string", enum: values }, { type: "null" }] })
+const obj  = (properties: Record<string, unknown>) => ({
+  type: "object", additionalProperties: false, properties, required: Object.keys(properties),
+})
+
+function buildSchema(categories: string[], vehicleIds: string[]) {
+  return obj({
+    document: obj({
+      vehicle_id:    oneOf(vehicleIds),
+      document_type: { type: "string", enum: DOC_TYPES },
+      document_date: str,
+      description:   { type: "string" },
+    }),
+    visit: obj({
+      title:          { type: "string" },
+      visit_date:     str,
+      shop_name:      str,
+      work_order:     str,
+      invoice_number: str,
+      technician:     str,
+      total_cost:     num,
+      mileage:        int,
+      notes:          str,
+    }),
+    records: {
+      type: "array",
+      items: obj({
+        title:       { type: "string" },
+        category:    { type: "string", enum: categories },
+        description: str,
+        labor_cost:  num,
+        parts_cost:  num,
+        total_cost:  num,
+        notes:       str,
+        parts: {
+          type: "array",
+          items: obj({
+            part_name:    { type: "string" },
+            part_number:  str,
+            manufacturer: str,
+            vendor:       str,
+            quantity:     num,
+            unit_cost:    num,
+            total_cost:   num,
+          }),
+        },
+      }),
+    },
+    inspection: {
+      anyOf: [
+        { type: "null" },
+        obj({
+          inspection_type: { type: "string", enum: INSP_TYPES },
+          result:          { type: "string", enum: INSP_RESULTS },
+          inspection_date: str,
+          report_number:   str,
+          repairs_needed:  str,
+          record_index:    int,
+        }),
+      ],
+    },
+    diagnostic_codes: {
+      type: "array",
+      items: obj({ code: { type: "string" }, description: str }),
+    },
+    recommended_work: {
+      type: "array",
+      items: obj({
+        title:       { type: "string" },
+        description: str,
+        priority:    { type: "string", enum: PRIORITIES },
+      }),
+    },
+  })
 }
 
-Extraction rules:
-- Create one record entry per distinct labor operation or category of parts.
-- For invoices with many parts (oil + filter + hardware), group related parts under one record.
-- Include EVERY part listed — part numbers, brands, and prices are especially important.
-- If the document shows mileage, put it in visit.notes (e.g. "Mileage: 89,940").
-- For a parts store receipt with no labor, visit_type should reflect that (shop_name = store name).
-- If a cost is shown as a credit or discount, represent it as a negative number.
-- Return ONLY the raw JSON object — no markdown fences, no explanation text.`
+function buildPrompt(vehicleList: string, knownVehicle: string | null) {
+  return `\
+Read this vehicle document (receipt, invoice, work order, inspection report, estimate, parts-store receipt, registration, photo, or manual) for a family fleet and extract everything useful. The family reviews your output before anything is saved, so leave a field null when the document doesn't show it rather than guessing.
+
+Fleet vehicles (id — description):
+${vehicleList}
+${knownVehicle ? `\nThe user opened this upload from vehicle ${knownVehicle}; choose it unless the document clearly names a different vehicle.\n` : ""}
+document
+- vehicle_id: match on VIN, plate, year/make/model, or the name written on the document. Null if you can't tell.
+- document_type: what kind of document this is. description: one short line a person would recognise it by (e.g. "NTB brake job, front pads & rotors").
+
+visit (the shop visit or purchase the document records)
+- title: a few words naming the primary focus of the visit, based on the most important line items (e.g. "Front brakes + alignment", "Failed safety inspection"), not a list of every item.
+- shop_name: the shop, dealer, or parts store. Use "Self / Owner" for DIY parts purchases with no labor shop.
+- mileage: odometer reading as a whole number if shown.
+
+records (one per distinct labor operation or category of parts)
+- Group related parts under one record (oil + filter + hardware). Include EVERY part listed; part numbers, brands, and prices matter.
+- Credits or discounts are negative numbers.
+- Leave records empty for documents with no service work (registration, photo, manual).
+
+inspection (only for a state safety or emissions inspection; otherwise null)
+- result "fail" for a rejection or failure. repairs_needed: what must be fixed to pass, including any trouble codes.
+- record_index: the 0-based index of the record that is the inspection itself.
+
+diagnostic_codes: every OBD-II / trouble code observed (e.g. P0300), with its description if given.
+
+recommended_work: work the shop recommends or the document says is still needed but was NOT done on this visit (declined items, "recommend replacing…", failed inspection items). Do not repeat work that was performed.`
+}
 
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: CORS })
   }
 
   try {
-    const { documentId, vehicleName } = await req.json()
-
-    if (!documentId) {
-      return json({ success: false, error: "documentId is required" }, 400)
-    }
-
-    // ── 1. Look up document record ───────────────────────────────────────────
+    const body = await req.json()
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
     )
 
-    const { data: doc, error: docErr } = await supabase
-      .from("documents")
-      .select("id, storage_path, mime_type, filename, document_type")
-      .eq("id", documentId)
-      .single()
-
-    if (docErr || !doc) {
-      return json({ success: false, error: `Document not found: ${docErr?.message}` }, 404)
+    // ── 1. Resolve the file ──────────────────────────────────────────────────
+    let storagePath: string, mimeType: string | null, filename: string | null
+    if (body.documentId) {
+      const { data: doc, error } = await supabase
+        .from("documents").select("storage_path, mime_type, filename")
+        .eq("id", body.documentId).single()
+      if (error || !doc) return fail(`Document not found: ${error?.message}`)
+      ;({ storage_path: storagePath, mime_type: mimeType, filename } = doc)
+    } else if (body.storagePath) {
+      storagePath = body.storagePath
+      mimeType    = body.mimeType ?? null
+      filename    = body.filename ?? null
+    } else {
+      return fail("documentId or storagePath is required")
     }
 
-    // ── 2. Download file from Storage ────────────────────────────────────────
-    const { data: fileBlob, error: storageErr } = await supabase.storage
-      .from("documents")
-      .download(doc.storage_path)
+    const { data: fileBlob, error: storageErr } = await supabase.storage.from("documents").download(storagePath)
+    if (storageErr || !fileBlob) return fail(`Storage download failed: ${storageErr?.message}`)
 
-    if (storageErr || !fileBlob) {
-      return json({ success: false, error: `Storage download failed: ${storageErr?.message}` }, 500)
+    const mime = mimeType || guessMime(filename ?? storagePath)
+    const isPDF = mime === "application/pdf"
+    const isImage = ["image/jpeg", "image/png", "image/gif", "image/webp"].includes(mime)
+    if (!isPDF && !isImage) {
+      return fail(`File type "${mime}" can't be read by AI. Supported: PDF, JPEG, PNG, GIF, WEBP.`)
     }
 
-    // ── 3. Convert to base64 ─────────────────────────────────────────────────
-    const arrayBuffer = await fileBlob.arrayBuffer()
-    const bytes       = new Uint8Array(arrayBuffer)
-    let binary        = ""
-    // Process in chunks to avoid call stack overflow on large files
-    const CHUNK = 8192
-    for (let i = 0; i < bytes.length; i += CHUNK) {
-      binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
-    }
-    const base64 = btoa(binary)
-
-    // ── 4. Build Claude content block ────────────────────────────────────────
-    const mimeType = doc.mime_type || guessMime(doc.filename ?? doc.storage_path)
-    const isPDF    = mimeType === "application/pdf"
-
-    // Claude supports: image/jpeg, image/png, image/gif, image/webp, application/pdf
-    const supportedImage = ["image/jpeg","image/png","image/gif","image/webp"].includes(mimeType)
-
-    if (!isPDF && !supportedImage) {
-      return json({
-        success: false,
-        error: `File type "${mimeType}" is not supported for AI analysis. ` +
-               "Supported types: PDF, JPEG, PNG, GIF, WEBP.",
-      }, 400)
-    }
-
+    const base64 = toBase64(new Uint8Array(await fileBlob.arrayBuffer()))
     const fileBlock = isPDF
       ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } }
-      : { type: "image",    source: { type: "base64", media_type: mimeType,           data: base64 } }
+      : { type: "image",    source: { type: "base64", media_type: mime,              data: base64 } }
 
-    // ── 5. Call Claude API ───────────────────────────────────────────────────
-    const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY")
-    if (!anthropicKey) {
-      return json({ success: false, error: "ANTHROPIC_API_KEY secret not configured" }, 500)
-    }
+    // ── 2. Context: fleet + categories ───────────────────────────────────────
+    const [{ data: vehicles }, { data: categories }] = await Promise.all([
+      supabase.from("vehicles").select("id, name, year, make, model, vin, current_plate"),
+      supabase.rpc("enum_values", { enum_name: "service_category" }),
+    ])
+    const fleet = vehicles ?? []
+    const describe = (v: Record<string, unknown>) =>
+      [v.name, [v.year, v.make, v.model].filter(Boolean).join(" "),
+       v.vin && `VIN ${v.vin}`, v.current_plate && `plate ${v.current_plate}`].filter(Boolean).join(", ")
+    const vehicleList = fleet.map(v => `${v.id} — ${describe(v)}`).join("\n")
+    const known = body.vehicleId ? fleet.find(v => v.id === body.vehicleId) : null
 
-    const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type":    "application/json",
-        "x-api-key":       anthropicKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-beta":  "pdfs-2024-09-25",  // required for PDF document blocks
+    // ── 3. Ask Claude ────────────────────────────────────────────────────────
+    const client = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") })
+    const response = await client.beta.messages.create({
+      model: MODEL,
+      max_tokens: 16000,
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",                 // re-run a rare safety decline on a fallback model
+      output_config: {
+        effort: "medium",                   // extraction: Opus 5.5's default, set explicitly
+        format: {
+          type: "json_schema",
+          schema: buildSchema(categories?.length ? categories : ["other"], fleet.map(v => v.id)),
+        },
       },
-      body: JSON.stringify({
-        model:      "claude-opus-4-6",
-        max_tokens: 4096,
-        messages: [{
-          role: "user",
-          content: [
-            { type: "text", text: EXTRACTION_PROMPT(vehicleName || "unknown vehicle") },
-            fileBlock,
-          ],
-        }],
-      }),
+      messages: [{
+        role: "user",
+        content: [
+          fileBlock,
+          { type: "text", text: buildPrompt(vehicleList, known ? `${known.id} (${describe(known)})` : null) },
+        ],
+      }],
     })
 
-    if (!claudeRes.ok) {
-      const errText = await claudeRes.text()
-      return json({ success: false, error: "Claude API error", detail: errText }, 500)
+    if (response.stop_reason === "refusal") {
+      return fail("The AI declined to read this document. You can enter the details manually.")
     }
-
-    const claudeResult = await claudeRes.json()
-    const rawText      = claudeResult.content?.[0]?.text ?? ""
-
-    // ── 6. Parse Claude's response ───────────────────────────────────────────
-    try {
-      // Strip accidental markdown code fences
-      const cleaned = rawText
-        .replace(/^```(?:json)?\s*/m, "")
-        .replace(/\s*```\s*$/m, "")
-        .trim()
-      const parsed = JSON.parse(cleaned)
-      return json({ success: true, data: parsed, documentId })
-    } catch (_e) {
-      return json({
-        success: false,
-        error: "Claude returned a response that could not be parsed as JSON. " +
-               "Try again or enter the data manually.",
-        raw: rawText,
-      }, 500)
+    if (response.stop_reason === "max_tokens") {
+      return fail("The document was too long to read in one pass. Try a shorter file or enter it manually.")
     }
+    const text = response.content.find((b: { type: string }) => b.type === "text") as { text?: string } | undefined
+    if (!text?.text) return fail("The AI returned no data.")
 
+    return json({ success: true, data: JSON.parse(text.text), model: response.model })
   } catch (err) {
-    return json({ success: false, error: String(err) }, 500)
+    if (err instanceof Anthropic.APIError) {
+      return fail(`AI service error ${err.status ?? ""}: ${err.message}`)
+    }
+    return fail(err instanceof Error ? err.message : String(err))
   }
 })
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+// Handled errors return 200 so supabase.functions.invoke surfaces the message
+function fail(error: string) {
+  return json({ success: false, error })
+}
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -205,15 +257,19 @@ function json(body: unknown, status = 200) {
   })
 }
 
+function toBase64(bytes: Uint8Array) {
+  let binary = ""
+  const CHUNK = 8192   // chunked to avoid call-stack overflow on large files
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+  }
+  return btoa(binary)
+}
+
 function guessMime(filename: string): string {
   const ext = filename.split(".").pop()?.toLowerCase() ?? ""
-  const map: Record<string, string> = {
-    pdf: "application/pdf",
-    jpg: "image/jpeg", jpeg: "image/jpeg",
-    png: "image/png",
-    gif: "image/gif",
-    webp: "image/webp",
-    heic: "image/heic", heif: "image/heic",
-  }
-  return map[ext] ?? "application/octet-stream"
+  return ({
+    pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg",
+    png: "image/png", gif: "image/gif", webp: "image/webp",
+  } as Record<string, string>)[ext] ?? "application/octet-stream"
 }
