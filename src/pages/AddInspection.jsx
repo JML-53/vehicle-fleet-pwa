@@ -1,11 +1,12 @@
 import { useEffect } from 'react'
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import DeleteOrRequest from '@/components/DeleteOrRequest'
-import { ArrowLeft } from 'lucide-react'
-import { format, addMonths, endOfMonth, parseISO } from 'date-fns'
+import { createInspectionRepairItem, invalidatePending } from '@/lib/pendingWork'
+import { ArrowLeft, ShieldX } from 'lucide-react'
+import { format, addMonths, addDays, endOfMonth, parseISO } from 'date-fns'
 
 // Virginia rule: inspection expires end of month, interval_months from inspection month
 function calcExpiryDate(inspectionDate, intervalMonths) {
@@ -15,6 +16,20 @@ function calcExpiryDate(inspectionDate, intervalMonths) {
 }
 
 const INTERVAL = { safety: 12, emissions: 24 }
+// Re-test window after a fail (item 28). Per-vehicle values live on
+// inspections.grace_days; these are the defaults (VA: 15-day rejection
+// sticker for safety, 14-day free re-test for emissions).
+const GRACE = { safety: 15, emissions: 14 }
+
+// Pass → VA end-of-month expiry; Fail → re-test-by date (date + grace days)
+function calcDueDate(inspectionDate, type, result, graceDays) {
+  if (!inspectionDate || !type) return ''
+  if (result === 'fail') {
+    const d = typeof inspectionDate === 'string' ? parseISO(inspectionDate) : inspectionDate
+    return format(addDays(d, graceDays ?? GRACE[type]), 'yyyy-MM-dd')
+  }
+  return calcExpiryDate(inspectionDate, INTERVAL[type])
+}
 
 function useVehicle(id) {
   return useQuery({
@@ -45,7 +60,7 @@ function useInspectionTemplate(vehicleId, type) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('inspections')
-        .select('id')
+        .select('id, grace_days, inspection_type')
         .eq('vehicle_id', vehicleId)
         .eq('inspection_type', type)
         .single()
@@ -53,6 +68,22 @@ function useInspectionTemplate(vehicleId, type) {
       return data
     },
     enabled: !!vehicleId && !!type,
+  })
+}
+
+function useRepairItem(fulfillmentId) {
+  return useQuery({
+    queryKey: ['pending_work', 'from_inspection', fulfillmentId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('pending_work')
+        .select('id, title, status')
+        .eq('source_inspection_fulfillment_id', fulfillmentId)
+        .limit(1)
+      if (error) throw error
+      return data[0] ?? null
+    },
+    enabled: !!fulfillmentId,
   })
 }
 
@@ -83,10 +114,11 @@ export default function AddInspection() {
   const { data: vehicle } = useVehicle(vehicleId)
   const { data: shops = [] } = useShops()
   const { data: existing } = useFulfillmentForEdit(fulfillmentId)
+  const { data: existingRepair } = useRepairItem(fulfillmentId)
 
   const today = format(new Date(), 'yyyy-MM-dd')
 
-  const { register, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm({
+  const { register, handleSubmit, watch, setValue, getValues, reset, formState: { errors } } = useForm({
     defaultValues: {
       inspection_type: 'safety',
       inspection_date: today,
@@ -96,6 +128,7 @@ export default function AddInspection() {
       shop_id:         '',
       mileage:         '',
       notes:           '',
+      repairs:         '',
     },
   })
 
@@ -111,25 +144,33 @@ export default function AddInspection() {
         shop_id:         existing.shop_id || '',
         mileage:         existing.mileage_at_inspection || '',
         notes:           existing.notes || '',
+        repairs:         existing.result === 'fail' ? (existing.notes || '') : '',
       })
     }
   }, [existing, reset, today])
 
-  // Auto-recalculate expiry when date or type changes
-  const watchedDate = watch('inspection_date')
-  const watchedType = watch('inspection_type')
-  useEffect(() => {
-    if (watchedDate && watchedType) {
-      setValue('expiry_date', calcExpiryDate(watchedDate, INTERVAL[watchedType]))
-    }
-  }, [watchedDate, watchedType, setValue])
+  const watchedType   = watch('inspection_type')
+  const watchedResult = watch('result')
+  const isFail        = watchedResult === 'fail'
 
   // Find the inspection template row for this vehicle/type
   const { data: template } = useInspectionTemplate(vehicleId, watchedType)
 
+  // Recalculate the due date only when the user changes date / type / result —
+  // never on load, so a hand-entered re-test date on an existing record survives.
+  function recalcDue() {
+    const { inspection_date, inspection_type, result } = getValues()
+    // On a type change the new type's template hasn't loaded yet — only use
+    // template grace days when they belong to the type being calculated
+    const grace = template?.inspection_type === inspection_type ? template.grace_days : undefined
+    setValue('expiry_date', calcDueDate(inspection_date, inspection_type, result, grace))
+    if (result === 'fail' && !getValues('repairs')) setValue('repairs', getValues('notes'))
+  }
+
   const mutation = useMutation({
     mutationFn: async (values) => {
       const mileage = values.mileage ? parseInt(values.mileage, 10) : null
+      let savedId = fulfillmentId
 
       if (isEditing) {
         // Edit mode: update the fulfillment row only
@@ -208,7 +249,7 @@ export default function AddInspection() {
         }
 
         // 5. Create inspection_fulfillments row
-        const { error: infErr } = await supabase
+        const { data: newInf, error: infErr } = await supabase
           .from('inspection_fulfillments')
           .insert({
             inspection_id:         inspectionId,
@@ -221,7 +262,22 @@ export default function AddInspection() {
             mileage_at_inspection: mileage,
             notes:                 values.notes || null,
           })
+          .select('id')
+          .single()
         if (infErr) throw infErr
+        savedId = newInf.id
+      }
+
+      // 6. Failed → "fix it" pending item referencing this inspection (once)
+      if (values.result === 'fail' && !existingRepair) {
+        await createInspectionRepairItem({
+          vehicleId,
+          fulfillmentId:  savedId,
+          inspectionType: values.inspection_type,
+          inspectionDate: values.inspection_date,
+          repairs:        values.repairs,
+          shopId:         values.shop_id,
+        })
       }
     },
     onSuccess: () => {
@@ -230,6 +286,7 @@ export default function AddInspection() {
       qc.invalidateQueries({ queryKey: ['service_visits',    vehicleId] })
       qc.invalidateQueries({ queryKey: ['service_history',   vehicleId] })
       qc.invalidateQueries({ queryKey: ['mileage',           vehicleId] })
+      invalidatePending(qc, vehicleId)
       navigate(`/vehicles/${vehicleId}?tab=inspections`)
     },
   })
@@ -283,7 +340,7 @@ export default function AddInspection() {
         <div>
           <label className="field-label">Inspection Type *</label>
           <select
-            {...register('inspection_type', { required: true })}
+            {...register('inspection_type', { required: true, onChange: recalcDue })}
             className="field-select"
             disabled={isEditing}
           >
@@ -296,14 +353,14 @@ export default function AddInspection() {
           <div>
             <label className="field-label">Inspection Date *</label>
             <input
-              {...register('inspection_date', { required: 'Date is required' })}
+              {...register('inspection_date', { required: 'Date is required', onChange: recalcDue })}
               type="date"
               className={`field-input ${errors.inspection_date ? 'border-red-400' : ''}`}
             />
           </div>
           <div>
             <label className="field-label">
-              Expiry Date
+              {isFail ? 'Re-test by' : 'Expiry Date'}
               <span className="text-slate-400 font-normal ml-1">(auto-calculated)</span>
             </label>
             <input
@@ -317,7 +374,7 @@ export default function AddInspection() {
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="field-label">Result</label>
-            <select {...register('result')} className="field-select">
+            <select {...register('result', { onChange: recalcDue })} className="field-select">
               <option value="pass">Pass</option>
               <option value="fail">Fail</option>
             </select>
@@ -351,6 +408,33 @@ export default function AddInspection() {
             className="field-input"
           />
         </div>
+
+        {isFail && (
+          <div className="card border border-purple-200 bg-purple-50 space-y-2">
+            <h2 className="card-header text-purple-800 mb-0 flex items-center gap-1.5">
+              <ShieldX size={14} /> Failed: repairs needed
+            </h2>
+            {existingRepair ? (
+              <p className="text-sm text-purple-800">
+                Tracked as pending work:{' '}
+                <Link to={`/vehicles/${vehicleId}/add-pending?edit=${existingRepair.id}`}
+                  className="underline font-medium">{existingRepair.title}</Link>
+                {' '}({existingRepair.status.replace('_', ' ')}).
+              </p>
+            ) : (
+              <>
+                <textarea {...register('repairs')} rows={3} className="field-textarea bg-white"
+                  placeholder="What has to be fixed to pass, e.g. Brakes and tires; codes P0300, P0442" />
+                <p className="text-xs text-purple-700">
+                  Saving creates a high-priority pending work item for this. Logging a passing re-test later closes it automatically.
+                </p>
+              </>
+            )}
+            <p className="text-xs text-purple-700">
+              Re-test window: {(template?.inspection_type === watchedType && template?.grace_days) || GRACE[watchedType]} days for {watchedType} inspections on this vehicle.
+            </p>
+          </div>
+        )}
 
         <div>
           <label className="field-label">Notes</label>

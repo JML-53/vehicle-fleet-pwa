@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useMyOpenWork, PRIORITY_META } from '@/lib/pendingWork'
 import { format, parseISO, differenceInDays } from 'date-fns'
-import { AlertTriangle, CheckCircle, Clock, Car, Plus, ShieldCheck } from 'lucide-react'
+import { AlertTriangle, CheckCircle, Clock, Car, Plus, ShieldCheck, ShieldX } from 'lucide-react'
 
 // ---- Data hooks ----
 
@@ -84,12 +84,15 @@ function InspectionCell({ row }) {
     current:  { text: 'text-green-700',  bg: 'bg-green-50',  Icon: ShieldCheck },
     due_soon: { text: 'text-amber-700',  bg: 'bg-amber-50',  Icon: Clock },
     expired:  { text: 'text-red-700',    bg: 'bg-red-50',    Icon: AlertTriangle },
+    failed:   { text: 'text-purple-700', bg: 'bg-purple-50', Icon: ShieldX },
     unknown:  { text: 'text-slate-400',  bg: 'bg-slate-50',  Icon: Clock },
-  }[status]
+  }[status] ?? { text: 'text-slate-400', bg: 'bg-slate-50', Icon: Clock }
 
   const { Icon } = cfg
   const dateStr = row.next_due_date ? format(parseISO(row.next_due_date), 'M/d/yy') : '—'
-  const subtext = status === 'expired'
+  const subtext = status === 'failed'
+    ? (row.retest_overdue ? `Failed · re-test ${Math.abs(days)}d overdue` : `Failed · re-test by ${dateStr}`)
+    : status === 'expired'
     ? `Exp ${Math.abs(days)}d ago`
     : status === 'due_soon'
     ? `Due in ${days}d`
@@ -283,7 +286,7 @@ export default function Dashboard() {
   const today = format(new Date(), 'EEEE, MMMM d, yyyy')
 
   const alertInspections = (inspections.data || []).filter(
-    r => r.expiry_status === 'expired' || r.expiry_status === 'due_soon'
+    r => r.expiry_status === 'expired' || r.expiry_status === 'due_soon' || r.expiry_status === 'failed'
   )
 
   return (

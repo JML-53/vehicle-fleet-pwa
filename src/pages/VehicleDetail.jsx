@@ -9,7 +9,7 @@ import { useStoredState } from '@/lib/useStoredState'
 import PendingCard, { PendingLinkBadges } from '@/components/PendingCard'
 import CompletePendingSheet from '@/components/CompletePendingSheet'
 import { format, parseISO, isBefore, addDays } from 'date-fns'
-import { Plus, ArrowLeft, Gauge, Pencil, Upload, Link2, ChevronDown, ChevronUp, ShieldCheck, AlertTriangle, Clock } from 'lucide-react'
+import { Plus, ArrowLeft, Gauge, Pencil, Upload, Link2, ChevronDown, ChevronUp, ShieldCheck, ShieldX, AlertTriangle, Clock } from 'lucide-react'
 
 // ---- Data hooks ----
 
@@ -879,6 +879,19 @@ const useInspections = id => useQuery({
   enabled: !!id,
 })
 
+const useRepairItems = fulfillmentId => useQuery({
+  queryKey: ['pending_work', 'from_inspection', fulfillmentId],
+  queryFn: async () => {
+    const { data, error } = await supabase
+      .from('pending_work')
+      .select('id, title, status')
+      .eq('source_inspection_fulfillment_id', fulfillmentId)
+    if (error) throw error
+    return data
+  },
+  enabled: !!fulfillmentId,
+})
+
 const useInspectionHistory = inspectionId => useQuery({
   queryKey: ['inspection_history', inspectionId],
   queryFn: async () => {
@@ -903,8 +916,10 @@ function InspectionRow({ row }) {
     current:  { label: 'Current',  badge: 'badge-green',  Icon: ShieldCheck,    text: 'text-green-700' },
     due_soon: { label: 'Due Soon', badge: 'badge-amber',  Icon: Clock,          text: 'text-amber-700' },
     expired:  { label: 'Expired',  badge: 'badge-red',    Icon: AlertTriangle,  text: 'text-red-700'   },
+    failed:   { label: 'Failed',   badge: 'badge-purple', Icon: ShieldX,        text: 'text-purple-700' },
     unknown:  { label: 'Unknown',  badge: 'badge-slate',  Icon: Clock,          text: 'text-slate-500' },
-  }[status]
+  }[status] ?? { label: status, badge: 'badge-slate', Icon: Clock, text: 'text-slate-500' }
+  const { data: repairs = [] } = useRepairItems(status === 'failed' ? row.fulfillment_id : null)
 
   const { Icon } = statusConfig
 
@@ -925,8 +940,13 @@ function InspectionRow({ row }) {
                 <span>Last: <span className="text-slate-700">{format(parseISO(row.inspection_date), 'MMM d, yyyy')}</span></span>
               )}
               {row.next_due_date && (
-                <span className={row.expiry_status === 'expired' ? 'text-red-600 font-medium' : row.expiry_status === 'due_soon' ? 'text-amber-600 font-medium' : ''}>
-                  {row.expiry_status === 'expired' ? 'Expired: ' : 'Next due: '}
+                <span className={
+                  row.expiry_status === 'failed'   ? (row.retest_overdue ? 'text-red-600 font-medium' : 'text-purple-700 font-medium')
+                  : row.expiry_status === 'expired'  ? 'text-red-600 font-medium'
+                  : row.expiry_status === 'due_soon' ? 'text-amber-600 font-medium' : ''}>
+                  {row.expiry_status === 'failed'
+                    ? (row.retest_overdue ? 'Re-test overdue since: ' : 'Re-test by: ')
+                    : row.expiry_status === 'expired' ? 'Expired: ' : 'Next due: '}
                   <span className="font-medium">{format(parseISO(row.next_due_date), 'MMM d, yyyy')}</span>
                 </span>
               )}
@@ -934,6 +954,12 @@ function InspectionRow({ row }) {
               {row.result && <span>Result: <span className="text-slate-700 capitalize">{row.result}</span></span>}
               {row.mileage_at_inspection && <span>Mileage: <span className="text-slate-700">{Number(row.mileage_at_inspection).toLocaleString()}</span></span>}
             </div>
+            {repairs.map(p => (
+              <Link key={p.id} to={`/vehicles/${row.vehicle_id}/add-pending?edit=${p.id}`}
+                className="mt-1.5 inline-flex items-center gap-1 text-xs text-purple-700 hover:text-purple-900 underline decoration-purple-300">
+                Repairs: {p.title} · {p.status.replace('_', ' ')}
+              </Link>
+            ))}
           </div>
         </div>
         <div className="flex items-center gap-0.5 flex-shrink-0">

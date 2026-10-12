@@ -38,7 +38,8 @@ const LINKS_EMBED = `pending_work_links(
     service_visits(id, visit_date, shops(name)))
 )`
 
-export const PENDING_SELECT = `*, ${LINKS_EMBED}, assigned_shop:shops!pending_work_assigned_shop_id_fkey(id, name, is_self)`
+export const PENDING_SELECT = `*, ${LINKS_EMBED}, assigned_shop:shops!pending_work_assigned_shop_id_fkey(id, name, is_self),
+  source_inspection:inspection_fulfillments!pending_work_source_inspection_fulfillment_id_fkey(id, inspection_date, result, inspections(inspection_type))`
 
 // ── Queries ──────────────────────────────────────────────────────────────────
 
@@ -185,6 +186,29 @@ export async function setLinkResolves(linkId, resolves) {
 export async function unlink(linkId) {
   const { error } = await supabase.from('pending_work_links').delete().eq('id', linkId)
   if (error) throw error
+}
+
+/**
+ * "Fix it" item for a failed inspection (item 28). References the failed
+ * inspection (source_inspection_fulfillment_id) rather than linking it as
+ * work done; a later passing re-test closes it via trg_close_repairs_on_pass.
+ * Reused by AI parsing of inspection reports (item 9.3).
+ */
+export async function createInspectionRepairItem({ vehicleId, fulfillmentId, inspectionType, inspectionDate, repairs, shopId }) {
+  const label = inspectionType === 'safety' ? 'safety' : 'emissions'
+  const { data, error } = await supabase.from('pending_work').insert({
+    vehicle_id:       vehicleId,
+    title:            `Repairs to pass ${label} inspection`,
+    description:      repairs?.trim() || null,
+    priority:         'high',
+    status:           'pending',
+    identified_date:  inspectionDate,
+    source:           `Failed ${label} inspection ${inspectionDate}`,
+    assigned_shop_id: shopId || null,
+    source_inspection_fulfillment_id: fulfillmentId,
+  }).select('id').single()
+  if (error) throw error
+  return data.id
 }
 
 /** "Done, nothing to log" */

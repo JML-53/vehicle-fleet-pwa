@@ -4,7 +4,7 @@
  */
 import { Link, useNavigate } from 'react-router-dom'
 import { format, parseISO } from 'date-fns'
-import { Wrench, User, CheckCircle2, CircleDashed, Circle } from 'lucide-react'
+import { Wrench, User, CheckCircle2, CircleDashed, Circle, ShieldX } from 'lucide-react'
 import { PRIORITY_META, STATUS_META, CLOSED, resolvingLink } from '@/lib/pendingWork'
 
 function recordLink(vehicleId, rec) {
@@ -55,6 +55,8 @@ export default function PendingCard({ item, people = {}, vehicleName, onDone }) 
           )}
         </div>
       )}
+
+      <InspectionSourceLink item={item} />
 
       {resolved && (
         <p className="text-xs text-green-700 mb-1 flex items-center gap-1">
@@ -121,5 +123,22 @@ export function PendingLinkBadges({ links = [], vehicleId }) {
         </Link>
       ))}
     </div>
+  )
+}
+
+/** "From failed safety inspection · Sep 19, 2026" → the inspection record (item 28). */
+export function InspectionSourceLink({ item }) {
+  const src = item.source_inspection
+  if (!src) return null
+  const type = src.inspections?.inspection_type ?? 'an'
+  return (
+    <p className="text-xs text-purple-700 mb-1 flex items-center gap-1">
+      <ShieldX size={12} /> From{' '}
+      <Link to={`/vehicles/${item.vehicle_id}/add-inspection?edit=${src.id}`} onClick={e => e.stopPropagation()}
+        className="underline decoration-purple-300 hover:text-purple-900">
+        {src.result === 'fail' ? 'failed ' : ''}{type} inspection
+      </Link>
+      {src.inspection_date && <> · {format(parseISO(src.inspection_date), 'MMM d, yyyy')}</>}
+    </p>
   )
 }

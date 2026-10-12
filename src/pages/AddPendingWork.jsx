@@ -20,6 +20,7 @@ import {
   setLinkResolves, unlink, invalidatePending, fromPendingState,
 } from '@/lib/pendingWork'
 import DeleteOrRequest from '@/components/DeleteOrRequest'
+import { InspectionSourceLink } from '@/components/PendingCard'
 import CompletePendingSheet from '@/components/CompletePendingSheet'
 
 const FIELDS = [
@@ -131,6 +132,8 @@ export default function AddPendingWork() {
             {mutation.error?.message || 'Something went wrong.'}
           </div>
         )}
+
+        {existing && <InspectionSourceLink item={existing} />}
 
         <div>
           <label className="field-label">Title *</label>
