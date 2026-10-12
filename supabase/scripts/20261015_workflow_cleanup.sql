@@ -111,9 +111,9 @@ WHERE  id = 'bfa1211c-6e48-484f-abec-48cf5a2f24d2' AND status NOT IN ('completed
 -- Keeps "Replace both front tires" (2b37f78d…, Joseph) and gives it the Precision
 -- Motorcars 11/2025 source too; cancels "Front tire replacement (275/40 R20)" (d9cc235a…).
 -- Copies the tire size into the kept item's description.
-ROLLBACK: UPDATE pending_work SET status = 'pending', completed_date = NULL WHERE id = 'd9cc235a-0d3a-4e62-b68c-5fcd7b8e2319';
-          DELETE FROM pending_work_source_links WHERE pending_work_id = '2b37f78d-2ad4-4d80-84b0-f5f84cedfafd'
-            AND source_id = (SELECT id FROM pending_work_sources WHERE kind = 'note' AND label = 'Precision Motorcars 11/2025');
+-- ROLLBACK: UPDATE pending_work SET status = 'pending', completed_date = NULL WHERE id = 'd9cc235a-0d3a-4e62-b68c-5fcd7b8e2319';
+--           DELETE FROM pending_work_source_links WHERE pending_work_id = '2b37f78d-2ad4-4d80-84b0-f5f84cedfafd'
+--             AND source_id = (SELECT id FROM pending_work_sources WHERE kind = 'note' AND label = 'Precision Motorcars 11/2025');
 INSERT INTO pending_work_source_links (pending_work_id, source_id)
 SELECT '2b37f78d-2ad4-4d80-84b0-f5f84cedfafd', l.source_id
 FROM   pending_work_source_links l WHERE l.pending_work_id = 'd9cc235a-0d3a-4e62-b68c-5fcd7b8e2319'
