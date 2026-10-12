@@ -8,8 +8,14 @@
  *
  * Items 9.4 and 28 should create links through syncPendingLinks / linkRecord
  * rather than writing pending_work.status directly.
+ *
+ * Item 32: where work was reported lives in pending_work_sources (one object
+ * shared by every item it produced, many:many via pending_work_source_links);
+ * "waiting on" in pending_work_deps; split / merge are single-transaction RPCs
+ * (migrations 20261015_workflow_sources_sessions.sql, 20261016_workflow_split_merge.sql).
  */
 import { useQuery } from '@tanstack/react-query'
+import { addDays, differenceInCalendarDays, format, parseISO } from 'date-fns'
 import { supabase } from '@/lib/supabase'
 import { rankScheduleItems, SUGGEST_THRESHOLD } from '@/lib/maintenanceMatch'
 
@@ -38,7 +44,16 @@ const LINKS_EMBED = `pending_work_links(
     service_visits(id, visit_date, shops(name)))
 )`
 
-export const PENDING_SELECT = `*, ${LINKS_EMBED}, assigned_shop:shops!pending_work_assigned_shop_id_fkey(id, name, is_self),
+// Item 32: sources, what this waits on, and what waits on it
+const SOURCES_EMBED = `source_links:pending_work_source_links(id,
+  source:pending_work_sources(id, kind, label, inspection_fulfillment_id, document_id, service_visit_id, reported_date))`
+const DEPS_EMBED = `waits_on:pending_work_deps!pending_work_deps_pending_work_id_fkey(id, kind,
+    blocker:pending_work!pending_work_deps_blocked_by_id_fkey(id, title, status, vehicle_id)),
+  blocks:pending_work_deps!pending_work_deps_blocked_by_id_fkey(id, kind,
+    waiter:pending_work!pending_work_deps_pending_work_id_fkey(id, title, status, vehicle_id))`
+
+export const PENDING_SELECT = `*, ${LINKS_EMBED}, ${SOURCES_EMBED}, ${DEPS_EMBED},
+  assigned_shop:shops!pending_work_assigned_shop_id_fkey(id, name, is_self),
   source_inspection:inspection_fulfillments!pending_work_source_inspection_fulfillment_id_fkey(id, inspection_date, result, inspections(inspection_type))`
 
 // ── Queries ──────────────────────────────────────────────────────────────────
@@ -125,6 +140,42 @@ export function useRecentRecords(vehicleId, limit = 40) {
   })
 }
 
+/** Every source recorded for a vehicle (for "Add a source" on the item form). */
+export function useVehicleSources(vehicleId) {
+  return useQuery({
+    queryKey: ['pending_work_sources', vehicleId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('pending_work_sources')
+        .select('id, kind, label, reported_date')
+        .eq('vehicle_id', vehicleId)
+        .order('reported_date', { ascending: false, nullsFirst: false })
+      if (error) throw error
+      return data
+    },
+    enabled: !!vehicleId,
+    staleTime: 0,
+  })
+}
+
+/** Items that came from one inspection, via its source (VehicleDetail "Repairs: …"). */
+export function useInspectionRepairItems(fulfillmentId) {
+  return useQuery({
+    queryKey: ['pending_work', 'from_inspection', fulfillmentId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('pending_work_sources')
+        .select('pending_work_source_links(pending_work(id, title, status))')
+        .eq('inspection_fulfillment_id', fulfillmentId)
+        .maybeSingle()
+      if (error) throw error
+      return (data?.pending_work_source_links || []).map(l => l.pending_work).filter(Boolean)
+    },
+    enabled: !!fulfillmentId,
+    staleTime: 0,
+  })
+}
+
 export function useShopsList() {
   return useQuery({
     queryKey: ['shops'],
@@ -188,28 +239,102 @@ export async function unlink(linkId) {
   if (error) throw error
 }
 
+/** "- Parking brake\n• Front tires" → ['Parking brake', 'Front tires'] */
+export function repairLines(text) {
+  return (text || '')
+    .split(/\r?\n/)
+    .map(l => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim())
+    .filter(Boolean)
+}
+
 /**
- * "Fix it" item for a failed inspection (item 28). References the failed
- * inspection (source_inspection_fulfillment_id) rather than linking it as
- * work done; a later passing re-test closes it via trg_close_repairs_on_pass.
- * Reused by AI parsing of inspection reports (item 9.3).
+ * "Fix it" items for a failed inspection (items 28, 32). One item per repair
+ * line (a single line or none → one "Repairs to pass … inspection" item), all
+ * from the same inspection source and due by the re-test deadline. A later
+ * passing re-test closes every one of them (trg_close_repairs_on_pass).
+ * Reused by AI parsing of inspection reports (item 9.3). Returns the new ids.
  */
-export async function createInspectionRepairItem({ vehicleId, fulfillmentId, inspectionType, inspectionDate, repairs, shopId }) {
+export async function createInspectionRepairItems({ vehicleId, fulfillmentId, inspectionType, inspectionDate, repairs, shopId, documentId }) {
   const label = inspectionType === 'safety' ? 'safety' : 'emissions'
-  const { data, error } = await supabase.from('pending_work').insert({
+
+  // Re-test deadline, the same rule as the inspection_status view
+  const { data: f, error: fErr } = await supabase
+    .from('inspection_fulfillments')
+    .select('inspection_date, expiry_date, inspections(grace_days)')
+    .eq('id', fulfillmentId).single()
+  if (fErr) throw fErr
+  const due = f.expiry_date
+    || format(addDays(parseISO(f.inspection_date), f.inspections?.grace_days ?? 14), 'yyyy-MM-dd')
+
+  const lines  = repairLines(repairs)
+  const pieces = lines.length >= 2
+    ? lines.map(l => (l.length > 80 ? { title: `${l.slice(0, 77)}…`, description: l } : { title: l, description: null }))
+    : [{ title: `Repairs to pass ${label} inspection`, description: repairs?.trim() || null }]
+
+  const { data, error } = await supabase.from('pending_work').insert(pieces.map(p => ({
     vehicle_id:       vehicleId,
-    title:            `Repairs to pass ${label} inspection`,
-    description:      repairs?.trim() || null,
+    title:            p.title,
+    description:      p.description,
     priority:         'high',
     status:           'pending',
     identified_date:  inspectionDate,
+    due_date:         due,
     // MM/DD/YYYY to match the existing Source entries (and the 10/11 backfill)
     source:           `Failed ${label} inspection ${inspectionDate.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$2/$3/$1')}`,
     assigned_shop_id: shopId || null,
+    // The compatibility trigger turns these into the inspection (+ document) source
     source_inspection_fulfillment_id: fulfillmentId,
-  }).select('id').single()
+    source_document_id: documentId || null,
+  }))).select('id')
   if (error) throw error
-  return data.id
+  return data.map(r => r.id)
+}
+
+// ── Item 32: split / merge / waiting on / sources ────────────────────────────
+
+/** pieces: [{ title, assigned_to, priority, due_date }] — piece 1 is the item itself. */
+export async function splitItem(itemId, pieces) {
+  const { data, error } = await supabase.rpc('split_pending_item', { p_item: itemId, p_pieces: pieces })
+  if (error) throw error
+  return data
+}
+
+/** Keep `keepId`; move everything from `mergeId` onto it and cancel `mergeId`. */
+export async function mergeItems(keepId, mergeId) {
+  const { error } = await supabase.rpc('merge_pending_items', { p_keep: keepId, p_merge: mergeId })
+  if (error) throw error
+}
+
+export async function addWaitingOn(itemId, blockerId, kind = 'after') {
+  const { error } = await supabase.from('pending_work_deps')
+    .insert({ pending_work_id: itemId, blocked_by_id: blockerId, kind })
+  if (error) throw error
+}
+
+export async function removeWaitingOn(depId) {
+  const { error } = await supabase.from('pending_work_deps').delete().eq('id', depId)
+  if (error) throw error
+}
+
+export async function linkSource(itemId, sourceId) {
+  const { error } = await supabase.from('pending_work_source_links')
+    .upsert({ pending_work_id: itemId, source_id: sourceId },
+            { onConflict: 'pending_work_id,source_id', ignoreDuplicates: true })
+  if (error) throw error
+}
+
+export async function unlinkSource(linkId) {
+  const { error } = await supabase.from('pending_work_source_links').delete().eq('id', linkId)
+  if (error) throw error
+}
+
+/** A free-text source ("Teri", "NTB 05/18/2026"): reuses the vehicle's note with that label. */
+export async function noteSourceId(vehicleId, label, date = null) {
+  const { data, error } = await supabase.rpc('pending_source_id', {
+    p_kind: 'note', p_vehicle_id: vehicleId, p_ref: null, p_label: label.trim(), p_date: date,
+  })
+  if (error) throw error
+  return data
 }
 
 /** "Done, nothing to log" */
@@ -225,6 +350,7 @@ export function invalidatePending(qc, vehicleId) {
   qc.invalidateQueries({ queryKey: ['pending_work_open'] })
   qc.invalidateQueries({ queryKey: ['pending_work_fleet'] })
   qc.invalidateQueries({ queryKey: ['pending_work_item'] })
+  qc.invalidateQueries({ queryKey: ['pending_work_sources'] })
   if (vehicleId) {
     qc.invalidateQueries({ queryKey: ['service_visits',  vehicleId] })
     qc.invalidateQueries({ queryKey: ['service_history', vehicleId] })
@@ -239,6 +365,39 @@ export function rankPendingItems(record, items) {
   return rankScheduleItems(record, asSchedule)
 }
 export { SUGGEST_THRESHOLD }
+
+/** Due-date chip: red when overdue, amber within a week. null when none/closed. */
+export function dueInfo(item) {
+  if (!item?.due_date || CLOSED.includes(item.status)) return null
+  const d    = parseISO(item.due_date)
+  const days = differenceInCalendarDays(d, new Date())
+  if (days < 0)  return { days, badge: 'badge-red',   label: `Overdue · due ${format(d, 'M/d')}` }
+  if (days <= 7) return { days, badge: 'badge-amber', label: `Due ${format(d, 'EEE M/d')}` }
+  return { days, badge: 'badge-slate', label: `Due ${format(d, 'M/d/yy')}` }
+}
+
+/**
+ * "Waiting on" lines for an item. `blocking` = the item can't start yet:
+ *   after          → while the other item is open
+ *   only_if_fails  → while the other item is open; once it's completed the
+ *                    item is only needed if that didn't fix it ("still needed?")
+ * Cancelled blockers no longer block.
+ */
+export function waitingInfo(item) {
+  return (item?.waits_on || []).flatMap(d => {
+    const b = d.blocker
+    if (!b || b.status === 'cancelled') return []
+    const open = !CLOSED.includes(b.status)
+    if (d.kind === 'only_if_fails') {
+      return [open
+        ? { id: d.id, dep: d, blocking: true,  badge: 'badge-slate', text: `Only if “${b.title}” doesn't fix it` }
+        : { id: d.id, dep: d, blocking: false, badge: 'badge-amber', text: `“${b.title}” done — still needed?` }]
+    }
+    return open ? [{ id: d.id, dep: d, blocking: true, badge: 'badge-slate', text: `Waiting on: ${b.title}` }] : []
+  })
+}
+
+export const isWaiting = item => waitingInfo(item).some(w => w.blocking)
 
 /** The resolving link (latest record date) of an item, if any. */
 export function resolvingLink(item) {

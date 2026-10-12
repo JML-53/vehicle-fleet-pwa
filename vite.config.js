@@ -41,5 +41,9 @@ export default defineConfig({
   ],
   resolve: {
     alias: { '@': '/src' }
+  },
+  // Claude's preview pane assigns PORT when 5173 is taken by another session
+  server: {
+    port: Number(process.env.PORT) || 5173
   }
 })

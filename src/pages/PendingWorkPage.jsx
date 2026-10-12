@@ -7,6 +7,8 @@
  * sort, and Show completed. URL params ?person=me&group=person apply to this
  * visit only (Dashboard "My work" link) — they don't overwrite the remembered
  * choices, so the tab-bar Pending page still opens the way the user left it.
+ *
+ * 30: Vehicle filter (remembered), combinable with the person filter.
  */
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -15,12 +17,16 @@ import { useProfiles } from '@/lib/changeLog'
 import { useFleetPendingWork, CLOSED, priorityRank } from '@/lib/pendingWork'
 import { useStoredState } from '@/lib/useStoredState'
 import PendingCard from '@/components/PendingCard'
-import CompletePendingSheet from '@/components/CompletePendingSheet'
+import PendingActionSheet from '@/components/PendingSheets'
 
 const UNASSIGNED = 'unassigned'
 
 const SORTS = {
   priority:   { label: 'Priority',        cmp: (a, b) => priorityRank(a.priority) - priorityRank(b.priority) || byIdentified(a, b) },
+  // Item 32: soonest due first; no due date after, by priority
+  due:        { label: 'Due date',        cmp: (a, b) => (a.due_date ? 0 : 1) - (b.due_date ? 0 : 1)
+                                                         || (a.due_date || '').localeCompare(b.due_date || '')
+                                                         || priorityRank(a.priority) - priorityRank(b.priority) },
   identified: { label: 'Date identified', cmp: (a, b) => byIdentified(a, b) },
   completed:  { label: 'Date completed',  cmp: (a, b) => (b.completed_date || '').localeCompare(a.completed_date || '') || byIdentified(a, b) },
 }
@@ -33,9 +39,10 @@ export default function PendingWorkPage() {
   const [params, setParams] = useSearchParams()
   const [savedPerson, savePerson]   = useStoredState('pending_person_filter', 'all')   // all | me | <uuid> | unassigned
   const [savedGroup,  saveGroup]    = useStoredState('pending_group_by', 'vehicle')    // vehicle | person
+  const [savedVehicle, setVehicle]  = useStoredState('pending_vehicle_filter', 'all') // all | <vehicle uuid>
   const [sortKey,    setSortKey]    = useStoredState('pending_sort', 'priority')
   const [showClosed, setShowClosed] = useStoredState('pending_show_completed', false)
-  const [doneItem,   setDoneItem]   = useState(null)
+  const [sheet,      setSheet]      = useState(null)   // { action, item }
 
   // Deep-link values for this visit only; touching a control drops the override
   const [linked, setLinked] = useState(() => ({ person: params.get('person'), group: params.get('group') }))
@@ -57,7 +64,17 @@ export default function PendingWorkPage() {
       : person === UNASSIGNED ? !i.assigned_to
       : i.assigned_to === personId
 
-  const scoped  = data.filter(matchesPerson)
+  // Item 30: vehicles that have any pending work (open or closed), alphabetical
+  const vehicles = useMemo(() => {
+    const m = new Map()
+    for (const i of data) if (i.vehicle_id && !m.has(i.vehicle_id)) m.set(i.vehicle_id, i.vehicles?.name || 'Unknown vehicle')
+    return [...m.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
+  }, [data])
+  // A remembered vehicle with no pending work left falls back to All
+  const vehicle = savedVehicle !== 'all' && !isLoading && !vehicles.some(v => v.id === savedVehicle) ? 'all' : savedVehicle
+  const vehicleName = vehicles.find(v => v.id === vehicle)?.name
+
+  const scoped  = data.filter(i => matchesPerson(i) && (vehicle === 'all' || i.vehicle_id === vehicle))
   const visible = (showClosed ? scoped : scoped.filter(i => !CLOSED.includes(i.status)))
     .slice().sort((SORTS[sortKey] ?? SORTS.priority).cmp)
   const openN   = scoped.filter(i => !CLOSED.includes(i.status)).length
@@ -92,10 +109,12 @@ export default function PendingWorkPage() {
     on ? 'bg-white text-primary-900' : 'bg-primary-800 text-primary-200 hover:bg-primary-700'}`
   const darkSelect = 'bg-primary-800 text-primary-100 text-xs rounded-full px-3 py-1 border-0 focus:ring-2 focus:ring-primary-400'
 
-  const scopeLabel = person === 'all' ? 'across all vehicles'
+  const personLabel = person === 'all' ? ''
     : person === UNASSIGNED ? 'unassigned'
     : person === 'me' ? 'assigned to you'
     : `assigned to ${nameOf(person)}`
+  const scopeLabel = [vehicleName ? `on ${vehicleName}` : person === 'all' ? 'across all vehicles' : '', personLabel]
+    .filter(Boolean).join(' ')
 
   return (
     <div>
@@ -111,6 +130,11 @@ export default function PendingWorkPage() {
               <option key={p.id} value={p.id}>{p.display_name}</option>
             ))}
             <option value={UNASSIGNED}>Unassigned</option>
+          </select>
+
+          <select aria-label="Vehicle" value={vehicle} onChange={e => setVehicle(e.target.value)} className={darkSelect}>
+            <option value="all">All vehicles</option>
+            {vehicles.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
           </select>
 
           <div className="inline-flex rounded-full bg-primary-800 p-0.5" role="group" aria-label="Group by">
@@ -150,7 +174,8 @@ export default function PendingWorkPage() {
             )}
             <div className="space-y-3">
               {g.items.map(item => (
-                <PendingCard key={item.id} item={item} people={people} onDone={setDoneItem}
+                <PendingCard key={item.id} item={item} people={people}
+                  onAction={(action, it) => setSheet({ action, item: it })}
                   vehicleName={groupBy === 'person' ? item.vehicles?.name : undefined} />
               ))}
             </div>
@@ -159,12 +184,12 @@ export default function PendingWorkPage() {
 
         {!isLoading && groups.length === 0 && (
           <p className="text-center text-slate-400 text-sm py-12">
-            {person === 'all' ? 'No open pending work items.' : `Nothing open ${scopeLabel}.`}
+            {person === 'all' && vehicle === 'all' ? 'No open pending work items.' : `Nothing open ${scopeLabel}.`}
           </p>
         )}
       </div>
 
-      {doneItem && <CompletePendingSheet item={doneItem} onClose={() => setDoneItem(null)} />}
+      {sheet && <PendingActionSheet {...sheet} onClose={() => setSheet(null)} />}
     </div>
   )
 }

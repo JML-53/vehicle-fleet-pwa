@@ -3,14 +3,14 @@ import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { enumLabel } from '@/lib/enums'
-import { useVehiclePendingWork, CLOSED } from '@/lib/pendingWork'
+import { useVehiclePendingWork, useInspectionRepairItems, CLOSED } from '@/lib/pendingWork'
 import { useProfiles } from '@/lib/changeLog'
 import { useStoredState } from '@/lib/useStoredState'
 import PendingCard, { PendingLinkBadges } from '@/components/PendingCard'
 import SourceDocLink from '@/components/SourceDocLink'
 import LicensePlate from '@/components/LicensePlate'
 import { useRegistrationStatus, REG_STATUS_META, plateImageUrl } from '@/lib/registrations'
-import CompletePendingSheet from '@/components/CompletePendingSheet'
+import PendingActionSheet from '@/components/PendingSheets'
 import { format, parseISO, isBefore, addDays } from 'date-fns'
 import { Plus, ArrowLeft, Gauge, Pencil, Upload, Link2, ChevronDown, ChevronUp, ShieldCheck, ShieldX, AlertTriangle, Clock } from 'lucide-react'
 
@@ -392,7 +392,7 @@ function PendingWorkTab({ vehicleId }) {
   const [showClosed, setShowClosed] = useStoredState('pending_show_completed', false)
   const { data, isLoading } = useVehiclePendingWork(vehicleId, { includeClosed: showClosed })
   const { data: people = {} } = useProfiles()
-  const [doneItem, setDoneItem] = useState(null)
+  const [sheet, setSheet] = useState(null)   // { action, item }
 
   const openCount = (data || []).filter(i => !CLOSED.includes(i.status)).length
 
@@ -420,10 +420,11 @@ function PendingWorkTab({ vehicleId }) {
       )}
 
       {(data || []).map(item => (
-        <PendingCard key={item.id} item={item} people={people} onDone={setDoneItem} />
+        <PendingCard key={item.id} item={item} people={people}
+          onAction={(action, it) => setSheet({ action, item: it })} />
       ))}
 
-      {doneItem && <CompletePendingSheet item={doneItem} onClose={() => setDoneItem(null)} />}
+      {sheet && <PendingActionSheet {...sheet} onClose={() => setSheet(null)} />}
     </div>
   )
 }
@@ -899,19 +900,6 @@ const useInspections = id => useQuery({
   enabled: !!id,
 })
 
-const useRepairItems = fulfillmentId => useQuery({
-  queryKey: ['pending_work', 'from_inspection', fulfillmentId],
-  queryFn: async () => {
-    const { data, error } = await supabase
-      .from('pending_work')
-      .select('id, title, status')
-      .eq('source_inspection_fulfillment_id', fulfillmentId)
-    if (error) throw error
-    return data
-  },
-  enabled: !!fulfillmentId,
-})
-
 const useInspectionHistory = inspectionId => useQuery({
   queryKey: ['inspection_history', inspectionId],
   queryFn: async () => {
@@ -939,7 +927,7 @@ function InspectionRow({ row }) {
     failed:   { label: 'Failed',   badge: 'badge-purple', Icon: ShieldX,        text: 'text-purple-700' },
     unknown:  { label: 'Unknown',  badge: 'badge-slate',  Icon: Clock,          text: 'text-slate-500' },
   }[status] ?? { label: status, badge: 'badge-slate', Icon: Clock, text: 'text-slate-500' }
-  const { data: repairs = [] } = useRepairItems(status === 'failed' ? row.fulfillment_id : null)
+  const { data: repairs = [] } = useInspectionRepairItems(status === 'failed' ? row.fulfillment_id : null)
 
   const { Icon } = statusConfig
 

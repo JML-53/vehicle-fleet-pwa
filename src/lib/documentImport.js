@@ -9,7 +9,7 @@
  */
 import { supabase } from '@/lib/supabase'
 import { calcDueDate, ensureInspectionTemplate } from '@/lib/inspections'
-import { createInspectionRepairItem, rankPendingItems } from '@/lib/pendingWork'
+import { createInspectionRepairItems, rankPendingItems } from '@/lib/pendingWork'
 
 /** Score at/above which recommended work is treated as already tracked */
 export const ALREADY_TRACKED = 2
@@ -55,7 +55,7 @@ export function defaultFindings(parsed, openPending = []) {
  * recordIdByIndex: parsed record index → saved service_record id
  */
 export async function applyFindings({ findings, vehicleId, documentId, visitDate, shopId, mileage, recordIdByIndex = {}, diagnosticRecordId = null }) {
-  const created = { inspection: null, repairItem: null, codes: 0, work: 0 }
+  const created = { inspection: null, repairItems: [], codes: 0, work: 0 }
   if (!findings) return created
 
   // ── Inspection (9.3): attach to the parsed record — one event, one record ──
@@ -79,11 +79,10 @@ export async function applyFindings({ findings, vehicleId, documentId, visitDate
     created.inspection = inf.id
 
     if (insp.result === 'fail') {
-      created.repairItem = await createInspectionRepairItem({
+      created.repairItems = await createInspectionRepairItems({
         vehicleId, fulfillmentId: inf.id, inspectionType: insp.inspection_type,
-        inspectionDate: date, repairs: insp.repairs, shopId,
+        inspectionDate: date, repairs: insp.repairs, shopId, documentId,
       })
-      await supabase.from('pending_work').update({ source_document_id: documentId }).eq('id', created.repairItem)
     }
   }
 

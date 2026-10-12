@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import DeleteOrRequest from '@/components/DeleteOrRequest'
-import { createInspectionRepairItem, invalidatePending } from '@/lib/pendingWork'
+import { createInspectionRepairItems, invalidatePending, useInspectionRepairItems } from '@/lib/pendingWork'
 import { ArrowLeft, ShieldX } from 'lucide-react'
 import { format } from 'date-fns'
 import { INTERVAL, GRACE, TYPE_WORDS, calcExpiryDate, calcDueDate } from '@/lib/inspections'
@@ -49,22 +49,6 @@ function useInspectionTemplate(vehicleId, type) {
   })
 }
 
-function useRepairItem(fulfillmentId) {
-  return useQuery({
-    queryKey: ['pending_work', 'from_inspection', fulfillmentId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('pending_work')
-        .select('id, title, status')
-        .eq('source_inspection_fulfillment_id', fulfillmentId)
-        .limit(1)
-      if (error) throw error
-      return data[0] ?? null
-    },
-    enabled: !!fulfillmentId,
-  })
-}
-
 function useFulfillmentForEdit(fulfillmentId) {
   return useQuery({
     queryKey: ['inspection_fulfillment', fulfillmentId],
@@ -92,7 +76,7 @@ export default function AddInspection() {
   const { data: vehicle } = useVehicle(vehicleId)
   const { data: shops = [] } = useShops()
   const { data: existing } = useFulfillmentForEdit(fulfillmentId)
-  const { data: existingRepair } = useRepairItem(fulfillmentId)
+  const { data: existingRepairs = [] } = useInspectionRepairItems(fulfillmentId)
 
   const today = format(new Date(), 'yyyy-MM-dd')
 
@@ -284,9 +268,9 @@ export default function AddInspection() {
         savedId = newInf.id
       }
 
-      // 6. Failed → "fix it" pending item referencing this inspection (once)
-      if (values.result === 'fail' && !existingRepair) {
-        await createInspectionRepairItem({
+      // 6. Failed → "fix it" pending items from this inspection, one per repair line (once)
+      if (values.result === 'fail' && !existingRepairs.length) {
+        await createInspectionRepairItems({
           vehicleId,
           fulfillmentId:  savedId,
           inspectionType: values.inspection_type,
@@ -430,19 +414,24 @@ export default function AddInspection() {
             <h2 className="card-header text-purple-800 mb-0 flex items-center gap-1.5">
               <ShieldX size={14} /> Failed: repairs needed
             </h2>
-            {existingRepair ? (
-              <p className="text-sm text-purple-800">
-                Tracked as pending work:{' '}
-                <Link to={`/vehicles/${vehicleId}/add-pending?edit=${existingRepair.id}`}
-                  className="underline font-medium">{existingRepair.title}</Link>
-                {' '}({existingRepair.status.replace('_', ' ')}).
-              </p>
+            {existingRepairs.length > 0 ? (
+              <div className="text-sm text-purple-800 space-y-0.5">
+                <p>Tracked as pending work:</p>
+                {existingRepairs.map(p => (
+                  <p key={p.id}>
+                    <Link to={`/vehicles/${vehicleId}/add-pending?edit=${p.id}`}
+                      className="underline font-medium">{p.title}</Link>
+                    {' '}({p.status.replace('_', ' ')})
+                  </p>
+                ))}
+              </div>
             ) : (
               <>
                 <textarea {...register('repairs')} rows={3} className="field-textarea bg-white"
-                  placeholder="What has to be fixed to pass, e.g. Brakes and tires; codes P0300, P0442" />
+                  placeholder={'What has to be fixed to pass — one per line, e.g.\nParking brake\nFront tires'} />
                 <p className="text-xs text-purple-700">
-                  Saving creates a high-priority pending work item for this. Logging a passing re-test later closes it automatically.
+                  Saving creates a high-priority pending item for each line (one line = one item), due by the re-test deadline.
+                  Logging a passing re-test later closes them all automatically.
                 </p>
               </>
             )}

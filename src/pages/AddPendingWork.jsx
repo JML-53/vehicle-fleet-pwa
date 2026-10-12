@@ -5,28 +5,36 @@
  * Assignment: who will do the work = a shop (incl. "Self / Owner") and/or a
  * family member. Work history lists the service records linked to this item;
  * a link marked "resolves" completes it (sync_pending_status trigger).
+ *
+ * Item 32: due date; "Where it was reported" = source chips (shared
+ * pending_work_sources, replacing the free-text Source box); "Waiting on";
+ * Split / Merge (PendingSheets).
  */
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
-import { ArrowLeft, FilePlus2, Link2, CheckCircle2, CircleDashed, X } from 'lucide-react'
+import { ArrowLeft, FilePlus2, Link2, CheckCircle2, CircleDashed, X, Plus, Split, Merge, Hourglass } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useProfiles } from '@/lib/changeLog'
 import {
-  usePendingItem, useShopsList, PRIORITY_META, STATUS_META,
+  usePendingItem, useShopsList, useVehicleSources, PRIORITY_META, STATUS_META, CLOSED,
   setLinkResolves, unlink, invalidatePending, fromPendingState,
+  linkSource, unlinkSource, noteSourceId, removeWaitingOn,
 } from '@/lib/pendingWork'
 import DeleteOrRequest from '@/components/DeleteOrRequest'
-import { InspectionSourceLink } from '@/components/PendingCard'
+import { SourceChipList } from '@/components/SourceChips'
 import CompletePendingSheet from '@/components/CompletePendingSheet'
+import PendingActionSheet from '@/components/PendingSheets'
 
 const FIELDS = [
-  'title', 'description', 'priority', 'status', 'estimated_cost', 'identified_date',
-  'source', 'assigned_shop_id', 'assigned_to', 'notes',
+  'title', 'description', 'priority', 'status', 'estimated_cost', 'identified_date', 'due_date',
+  'assigned_shop_id', 'assigned_to', 'notes',
 ]
+
+const today = () => new Date().toISOString().split('T')[0]
 
 export default function AddPendingWork() {
   const { id: vehicleId } = useParams()
@@ -40,13 +48,16 @@ export default function AddPendingWork() {
   const { data: existing }      = usePendingItem(itemId)
   const { data: shops = [] }    = useShopsList()
   const { data: people = {} }   = useProfiles()
+  const { data: vehicleSources = [] } = useVehicleSources(vehicleId)
   const [linking, setLinking]   = useState(false)
+  const [sheet, setSheet]       = useState(null)   // split | merge | wait
   const [newShop, setNewShop]   = useState(null)   // null | '' (adding) | name
+  const [staged, setStaged]     = useState([])     // new item: [{ key, source }] linked after insert
 
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm({
     defaultValues: {
       title: '', description: '', priority: 'medium', status: 'pending', estimated_cost: '',
-      identified_date: new Date().toISOString().split('T')[0], source: '',
+      identified_date: today(), due_date: '',
       assigned_shop_id: '', assigned_to: '', notes: '',
     },
   })
@@ -80,8 +91,13 @@ export default function AddPendingWork() {
         const { error } = await supabase.from('pending_work').update(payload).eq('id', itemId)
         if (error) throw error
       } else {
-        const { error } = await supabase.from('pending_work').insert({ ...payload, vehicle_id: vehicleId })
+        const { data, error } = await supabase.from('pending_work')
+          .insert({ ...payload, vehicle_id: vehicleId }).select('id').single()
         if (error) throw error
+        for (const { source } of staged) {
+          const sid = source.id ?? await noteSourceId(vehicleId, source.label, payload.identified_date)
+          await linkSource(data.id, sid)
+        }
       }
     },
     onSuccess: () => {
@@ -106,7 +122,28 @@ export default function AddPendingWork() {
     onSuccess: () => invalidatePending(qc, vehicleId),
   })
 
+  // ── Sources: live links when editing, staged ones for a new item ──
+  const sourceEntries = isEditing
+    ? (existing?.source_links || []).filter(l => l.source).map(l => ({ key: l.id, source: l.source }))
+    : staged
+  const linkedIds = new Set(sourceEntries.map(e => e.source.id).filter(Boolean))
+  const availableSources = vehicleSources.filter(s => !linkedIds.has(s.id))
+
+  function removeSource(key) {
+    if (isEditing) linkAction.mutate({ fn: () => unlinkSource(key) })
+    else setStaged(s => s.filter(e => e.key !== key))
+  }
+  function addExistingSource(source) {
+    if (isEditing) linkAction.mutate({ fn: () => linkSource(itemId, source.id) })
+    else setStaged(s => [...s, { key: source.id, source }])
+  }
+  function addNoteSource(label) {
+    if (isEditing) linkAction.mutate({ fn: async () => linkSource(itemId, await noteSourceId(vehicleId, label, today())) })
+    else setStaged(s => [...s, { key: `new:${label}`, source: { kind: 'note', label } }])
+  }
+
   const links    = existing?.pending_work_links || []
+  const isOpen   = existing && !CLOSED.includes(existing.status)
   const reporter = isEditing
     ? (existing?.reported_by && people[existing.reported_by]?.display_name)
     : profile?.display_name
@@ -123,6 +160,18 @@ export default function AddPendingWork() {
           {isEditing ? 'Edit Pending Work Item' : 'Add Pending Work Item'}
         </h1>
         {reporter && <p className="text-primary-300 text-xs mt-0.5">Reported by {reporter}</p>}
+        {isOpen && (
+          <div className="flex flex-wrap gap-2 mt-3">
+            <button type="button" onClick={() => setSheet('split')}
+              className="inline-flex items-center gap-1 text-xs font-medium bg-primary-800 text-primary-100 hover:bg-primary-700 rounded-full px-3 py-1.5">
+              <Split size={12} /> Split into separate items…
+            </button>
+            <button type="button" onClick={() => setSheet('merge')}
+              className="inline-flex items-center gap-1 text-xs font-medium bg-primary-800 text-primary-100 hover:bg-primary-700 rounded-full px-3 py-1.5">
+              <Merge size={12} /> Merge a duplicate into this…
+            </button>
+          </div>
+        )}
       </div>
 
       <form onSubmit={handleSubmit(d => mutation.mutate(d))}
@@ -132,8 +181,6 @@ export default function AddPendingWork() {
             {mutation.error?.message || 'Something went wrong.'}
           </div>
         )}
-
-        {existing && <InspectionSourceLink item={existing} />}
 
         <div>
           <label className="field-label">Title *</label>
@@ -162,6 +209,18 @@ export default function AddPendingWork() {
             <select {...register('status')} className="field-select">
               {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
             </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="field-label">Due date</label>
+            <input {...register('due_date')} type="date" className="field-input" />
+            <p className="text-xs text-slate-400 mt-0.5">e.g. re-test deadline, shop appointment</p>
+          </div>
+          <div>
+            <label className="field-label">Identified Date</label>
+            <input {...register('identified_date')} type="date" className="field-input" />
           </div>
         </div>
 
@@ -203,18 +262,58 @@ export default function AddPendingWork() {
             <label className="field-label">Estimated Cost</label>
             <input {...register('estimated_cost')} placeholder="~$250–350" className="field-input" />
           </div>
-          <div>
-            <label className="field-label">Identified Date</label>
-            <input {...register('identified_date')} type="date" className="field-input" />
-          </div>
         </div>
 
-        <div>
-          <label className="field-label">Source</label>
-          <input {...register('source')}
-            placeholder="e.g. NTB inspection, Autel scan, noticed while driving"
-            className="field-input" />
+        {/* ── Where it was reported (item 32) ── */}
+        <div className="card space-y-2">
+          <h2 className="card-header mb-0">Where it was reported</h2>
+          {sourceEntries.length === 0 && <p className="text-xs text-slate-400 italic">No source yet.</p>}
+          <SourceChipList entries={sourceEntries} vehicleId={vehicleId} onRemove={removeSource} />
+          <SourceAdder available={availableSources} disabled={linkAction.isPending}
+            onPick={addExistingSource} onNote={addNoteSource} />
+          <p className="text-xs text-slate-400">An item can have more than one source, e.g. a failed inspection and an earlier shop quote.</p>
         </div>
+
+        {/* ── Waiting on (item 32) ── */}
+        {isEditing && existing && (
+          <div className="card space-y-2">
+            <h2 className="card-header mb-0">Waiting on</h2>
+            {!(existing.waits_on || []).length && <p className="text-xs text-slate-400 italic">Can start any time.</p>}
+            {(existing.waits_on || []).map(d => {
+              const b = d.blocker
+              const bClosed = b && CLOSED.includes(b.status)
+              return (
+                <div key={d.id} className="flex items-center gap-2 text-sm">
+                  <Hourglass size={13} className="text-slate-400 shrink-0" />
+                  <span className="flex-1 min-w-0">
+                    {d.kind === 'only_if_fails' ? 'Only if ' : 'After '}
+                    <Link to={`/vehicles/${b?.vehicle_id}/add-pending?edit=${b?.id}`} className="font-medium text-slate-800 hover:text-primary-700">
+                      {b?.title}
+                    </Link>
+                    {d.kind === 'only_if_fails' && ' doesn\'t fix it'}
+                    {bClosed && <span className="text-xs text-slate-500"> · {b.status}</span>}
+                  </span>
+                  <button type="button" disabled={linkAction.isPending} aria-label="Remove"
+                    onClick={() => linkAction.mutate({ fn: () => removeWaitingOn(d.id) })}
+                    className="text-slate-300 hover:text-red-500 p-1.5"><X size={14} /></button>
+                </div>
+              )
+            })}
+            {(existing.blocks || []).filter(d => d.waiter && !CLOSED.includes(d.waiter.status)).map(d => (
+              <p key={d.id} className="text-xs text-slate-500">
+                <Link to={`/vehicles/${d.waiter.vehicle_id}/add-pending?edit=${d.waiter.id}`} className="underline hover:text-primary-700">
+                  {d.waiter.title}
+                </Link>{' '}waits on this{d.kind === 'only_if_fails' ? ' (only if this doesn\'t fix it)' : ''}.
+              </p>
+            ))}
+            {isOpen && (
+              <button type="button" onClick={() => setSheet('wait')}
+                className="btn-secondary text-xs py-1.5 px-3 inline-flex items-center gap-1">
+                <Plus size={13} /> Add "waiting on"…
+              </button>
+            )}
+          </div>
+        )}
 
         <div>
           <label className="field-label">Notes</label>
@@ -288,6 +387,42 @@ export default function AddPendingWork() {
       {linking && existing && (
         <CompletePendingSheet item={existing} initialMode="link" onClose={() => setLinking(false)} />
       )}
+      {sheet && existing && (
+        <PendingActionSheet action={sheet} item={existing} onClose={() => setSheet(null)} />
+      )}
     </div>
+  )
+}
+
+/** "+ Add a source": one of this vehicle's existing sources, or a new note. */
+function SourceAdder({ available, onPick, onNote, disabled }) {
+  const [note, setNote] = useState(null)   // null = closed, string = typing a new note
+  if (note !== null) {
+    const add = () => { if (note.trim()) { onNote(note.trim()); setNote(null) } }
+    return (
+      <div className="flex gap-1">
+        <input className="field-input" autoFocus placeholder="e.g. Teri, NTB 05/18/2026, noticed while driving"
+          value={note} onChange={e => setNote(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add() } }} />
+        <button type="button" onClick={add} disabled={disabled} className="btn-primary text-xs px-2">Add</button>
+        <button type="button" onClick={() => setNote(null)} className="btn-secondary text-xs px-2" aria-label="Cancel"><X size={12} /></button>
+      </div>
+    )
+  }
+  return (
+    <select className="field-select" value="" disabled={disabled}
+      onChange={e => {
+        const v = e.target.value
+        if (v === '__note') setNote('')
+        else if (v) onPick(available.find(s => s.id === v))
+      }}>
+      <option value="">+ Add a source…</option>
+      <option value="__note">New: type who / where…</option>
+      {available.length > 0 && (
+        <optgroup label="Already recorded for this vehicle">
+          {available.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+        </optgroup>
+      )}
+    </select>
   )
 }

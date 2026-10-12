@@ -37,13 +37,13 @@ export default function AlsoFoundPanel({ value, onChange }) {
               <span className="block text-xs text-slate-500">
                 {inspection.inspection_date || 'visit date'}
                 {inspection.report_number && ` · report ${inspection.report_number}`}
-                {' · '}updates the Inspections tab{failed ? ' and creates a repair item' : ''}
+                {' · '}updates the Inspections tab{failed ? ' and creates a repair item per line below' : ''}
               </span>
             </span>
           </label>
           {inspection.include && failed && (
-            <textarea className="field-textarea text-sm bg-white ml-6 w-[calc(100%-1.5rem)]" rows={2}
-              placeholder="Repairs needed to pass"
+            <textarea className="field-textarea text-sm bg-white ml-6 w-[calc(100%-1.5rem)]" rows={3}
+              placeholder={'Repairs needed to pass — one per line, e.g.\nParking brake\nFront tires'}
               value={inspection.repairs || ''}
               onChange={e => set({ inspection: { ...inspection, repairs: e.target.value } })} />
           )}

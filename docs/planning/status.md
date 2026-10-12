@@ -29,7 +29,7 @@ Replaces `roadmap-task-clusters-0920.md` (kept for history). The live roadmap in
 | 20 Multiple feedback entries per item | deferred · low | Joe's design is sound; also give Claude's impl_notes dated entries. Pairs with 29's dev advisor |
 | 9.1 Link old source documents | deferred · low | 9.5 covers new records; only pre-upload history remains |
 | 30 Filter by vehicle on Pending Work page | ready_for_review | Built + verified 10/12; Joe to test and approve |
-| **32** Manage workflow | partial · medium · **phase 1 live 10/12** | Mockups approved. Schema live (`20261015_workflow_sources_sessions.sql`, test 21/21). Cleanup A–F run 10/12. **Next: phase 2 UI** (cards, split/merge, sessions + close-out), then Plan board |
+| **32** Manage workflow | partial · medium · **phase 1 live 10/12** | Mockups approved. Schema live (`20261015_workflow_sources_sessions.sql`, test 21/21). Cleanup A–F run 10/12. **Phase 2a built 10/12** (cards: due / sources / waiting on; split, merge; per-line inspection repairs) — Joe to test after push. **Next: 2b** sessions + close-out, then Plan board |
 | **31** Dashboard Refinement | new · high | Options in impl_notes (attention strip, one Vehicles table with mileage, tabbed Work panel, two-column on wide screens). Built after 32 phase 1–2; mockups together with 32 |
 | 9.6 Link documents to visits, parts, specs, modifications, registrations | new · medium | From Joe's 9.2 feedback (10/12) |
 | 33 Major dependency upgrades (React Router 7, Tailwind 4, Vite 8, vite-plugin-pwa 2) | new · medium | Remaining npm-audit work; React Router first (runtime). See Housekeeping |

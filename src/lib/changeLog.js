@@ -44,6 +44,12 @@ export const TABLE_META = {
   parts:                    { noun: 'part',              rank: 21, title: r => r.part_name,                 link: () => null },
   maintenance_fulfillments: { noun: 'maintenance link',  rank: 22, title: () => null,                       link: () => null },
   pending_work_links:       { noun: 'pending-work link', rank: 23, title: r => (r.resolves ? 'resolves' : 'worked on'), link: () => null },
+  // Item 32
+  work_sessions:            { noun: 'work session',      rank: 3,  title: r => [r.title, r.planned_date].filter(Boolean).join(' · '), link: () => null },
+  pending_work_sources:     { noun: 'work source',       rank: 18, title: r => r.label,                     link: r => v(r, 'pending') },
+  pending_work_source_links:{ noun: 'source link',       rank: 24, title: () => null,                       link: () => null },
+  pending_work_deps:        { noun: '"waiting on" link', rank: 25, title: r => (r.kind === 'only_if_fails' ? 'only if it fails' : 'after'), link: () => null },
+  work_session_items:       { noun: 'session item',      rank: 26, title: r => r.outcome?.replace('_', ' ') ?? 'planned', link: () => null },
 }
 
 const VERB   = { INSERT: 'added', UPDATE: 'edited', DELETE: 'deleted' }
