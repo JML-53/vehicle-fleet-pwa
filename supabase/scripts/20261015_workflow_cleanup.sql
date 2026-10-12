@@ -101,31 +101,30 @@ WHERE  id = 'fb874fc8-e1a6-454a-bd5b-4b10e8ed77bc';
 -- nothing about the re-test: the pieces still close on a pass.
 -- ROLLBACK: UPDATE pending_work SET status = 'pending', completed_date = NULL WHERE id = 'bfa1211c-6e48-484f-abec-48cf5a2f24d2';
 
--- UPDATE pending_work
--- SET    status = 'cancelled', completed_date = DATE '2026-10-12',
---        notes = coalesce(notes || E'\n', '') || 'Cancelled 2026-10-12: replaced by its pieces "Replace both front tires" and "Repair parking brake" (same inspection source).'
--- WHERE  id = 'bfa1211c-6e48-484f-abec-48cf5a2f24d2' AND status NOT IN ('completed', 'cancelled');
+UPDATE pending_work
+SET    status = 'cancelled', completed_date = DATE '2026-10-12',
+       notes = coalesce(notes || E'\n', '') || 'Cancelled 2026-10-12: replaced by its pieces "Replace both front tires" and "Repair parking brake" (same inspection source).'
+WHERE  id = 'bfa1211c-6e48-484f-abec-48cf5a2f24d2' AND status NOT IN ('completed', 'cancelled');
 
 
 -- ── F. (OPTIONAL) Rover: merge the duplicate front-tire item ─────────────────
 -- Keeps "Replace both front tires" (2b37f78d…, Joseph) and gives it the Precision
 -- Motorcars 11/2025 source too; cancels "Front tire replacement (275/40 R20)" (d9cc235a…).
 -- Copies the tire size into the kept item's description.
--- ROLLBACK: UPDATE pending_work SET status = 'pending', completed_date = NULL WHERE id = 'd9cc235a-0d3a-4e62-b68c-5fcd7b8e2319';
---           DELETE FROM pending_work_source_links WHERE pending_work_id = '2b37f78d-2ad4-4d80-84b0-f5f84cedfafd'
---             AND source_id = (SELECT id FROM pending_work_sources WHERE kind = 'note' AND label = 'Precision Motorcars 11/2025');
-
--- INSERT INTO pending_work_source_links (pending_work_id, source_id)
--- SELECT '2b37f78d-2ad4-4d80-84b0-f5f84cedfafd', l.source_id
--- FROM   pending_work_source_links l WHERE l.pending_work_id = 'd9cc235a-0d3a-4e62-b68c-5fcd7b8e2319'
--- ON CONFLICT DO NOTHING;
--- UPDATE pending_work
--- SET    description = coalesce(description || E'\n', '') || 'Size 275/40 R20 (Thule K-Summit K66 chains on file) — merged from the Precision Motorcars 11/2025 item.'
--- WHERE  id = '2b37f78d-2ad4-4d80-84b0-f5f84cedfafd';
--- UPDATE pending_work
--- SET    status = 'cancelled', completed_date = DATE '2026-10-12',
---        notes = coalesce(notes || E'\n', '') || 'Merged 2026-10-12 into "Replace both front tires" (sources kept there).'
--- WHERE  id = 'd9cc235a-0d3a-4e62-b68c-5fcd7b8e2319' AND status NOT IN ('completed', 'cancelled');
+ROLLBACK: UPDATE pending_work SET status = 'pending', completed_date = NULL WHERE id = 'd9cc235a-0d3a-4e62-b68c-5fcd7b8e2319';
+          DELETE FROM pending_work_source_links WHERE pending_work_id = '2b37f78d-2ad4-4d80-84b0-f5f84cedfafd'
+            AND source_id = (SELECT id FROM pending_work_sources WHERE kind = 'note' AND label = 'Precision Motorcars 11/2025');
+INSERT INTO pending_work_source_links (pending_work_id, source_id)
+SELECT '2b37f78d-2ad4-4d80-84b0-f5f84cedfafd', l.source_id
+FROM   pending_work_source_links l WHERE l.pending_work_id = 'd9cc235a-0d3a-4e62-b68c-5fcd7b8e2319'
+ON CONFLICT DO NOTHING;
+UPDATE pending_work
+SET    description = coalesce(description || E'\n', '') || 'Size 275/40 R20 (Thule K-Summit K66 chains on file) — merged from the Precision Motorcars 11/2025 item.'
+WHERE  id = '2b37f78d-2ad4-4d80-84b0-f5f84cedfafd';
+UPDATE pending_work
+SET    status = 'cancelled', completed_date = DATE '2026-10-12',
+       notes = coalesce(notes || E'\n', '') || 'Merged 2026-10-12 into "Replace both front tires" (sources kept there).'
+WHERE  id = 'd9cc235a-0d3a-4e62-b68c-5fcd7b8e2319' AND status NOT IN ('completed', 'cancelled');
 
 
 -- ── Check ────────────────────────────────────────────────────────────────────
