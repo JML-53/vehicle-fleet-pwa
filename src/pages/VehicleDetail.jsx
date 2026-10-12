@@ -8,6 +8,8 @@ import { useProfiles } from '@/lib/changeLog'
 import { useStoredState } from '@/lib/useStoredState'
 import PendingCard, { PendingLinkBadges } from '@/components/PendingCard'
 import SourceDocLink from '@/components/SourceDocLink'
+import LicensePlate from '@/components/LicensePlate'
+import { useRegistrationStatus, REG_STATUS_META, plateImageUrl } from '@/lib/registrations'
 import CompletePendingSheet from '@/components/CompletePendingSheet'
 import { format, parseISO, isBefore, addDays } from 'date-fns'
 import { Plus, ArrowLeft, Gauge, Pencil, Upload, Link2, ChevronDown, ChevronUp, ShieldCheck, ShieldX, AlertTriangle, Clock } from 'lucide-react'
@@ -136,7 +138,7 @@ const useRegistrations = id => useQuery({
   queryKey: ['registrations', id],
   queryFn: async () => {
     const { data, error } = await supabase
-      .from('registrations').select('*').eq('vehicle_id', id)
+      .from('registrations').select('*, plate_styles(name, image_path)').eq('vehicle_id', id)
       .order('expiry_date', { ascending: false })
     if (error) throw error
     return data
@@ -853,10 +855,13 @@ function RegistrationsTab({ vehicleId }) {
         <div key={reg.id} className="card">
           <div className="flex items-start justify-between gap-2">
             <div>
-              <div className="flex items-center gap-2">
-                <span className="font-mono font-bold text-slate-800">{reg.plate}</span>
-                <span className="text-xs text-slate-500">{reg.state}</span>
-                {reg.is_current && <span className="badge-green">Current</span>}
+              <div className="flex items-center gap-3 flex-wrap">
+                <LicensePlate plate={reg.plate} state={reg.state || 'VA'} size="sm"
+                  imageUrl={plateImageUrl(reg.plate_styles?.image_path)} styleName={reg.plate_styles?.name} />
+                <div>
+                  {reg.is_current && <span className="badge-green">Current</span>}
+                  {reg.plate_styles?.name && <p className="text-xs text-slate-500 mt-0.5">{reg.plate_styles.name}</p>}
+                </div>
               </div>
               <div className="flex gap-4 text-xs text-slate-500 mt-1">
                 {reg.registration_date && <span>Registered: {format(parseISO(reg.registration_date), 'MMM d, yyyy')}</span>}
@@ -1061,6 +1066,86 @@ const TABS = [
   { id: 'registrations',label: 'Registration' },
 ]
 
+// ---- Header status chips (item 27) ----
+
+const INSP_CHIP = {
+  current:  { badge: 'badge-green',  text: 'current' },
+  due_soon: { badge: 'badge-amber',  text: 'due soon' },
+  expired:  { badge: 'badge-red',    text: 'expired' },
+  failed:   { badge: 'badge-purple', text: 'failed' },
+  unknown:  { badge: 'badge-slate',  text: 'no record' },
+}
+
+function useRegistrationTodo(vehicleId) {
+  return useQuery({
+    queryKey: ['pending_work', 'registration_todo', vehicleId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('pending_work').select('id, title')
+        .eq('vehicle_id', vehicleId).ilike('title', '%regist%')
+        .not('status', 'in', '(completed,cancelled)').limit(1)
+      if (error) throw error
+      return data[0] ?? null
+    },
+    enabled: !!vehicleId,
+  })
+}
+
+function HeaderPlate({ vehicle }) {
+  const { data: reg } = useRegistrationStatus(vehicle.id)
+  return (
+    <Link to={`/vehicles/${vehicle.id}?tab=registrations`} title="Registration & plate style">
+      <LicensePlate plate={reg?.plate || vehicle.current_plate} state={reg?.state || 'VA'}
+        imageUrl={plateImageUrl(reg?.plate_style_image_path)} styleName={reg?.plate_style_name} size="sm" />
+    </Link>
+  )
+}
+
+function HeaderChips({ vehicle }) {
+  const { data: reg } = useRegistrationStatus(vehicle.id)
+  const { data: insp = [] } = useInspections(vehicle.id)
+  const { data: regTodo } = useRegistrationTodo(vehicle.id)
+  const [copied, setCopied] = useState(false)
+
+  const regMeta = REG_STATUS_META[reg?.registration_status ?? 'unknown']
+  const regText = reg?.expiry_date
+    ? `${regMeta.label} · exp ${format(parseISO(reg.expiry_date), 'M/d/yy')}`
+    : regMeta.label
+  const regLink = regTodo && reg?.registration_status !== 'current'
+    ? `/vehicles/${vehicle.id}/add-pending?edit=${regTodo.id}`
+    : `/vehicles/${vehicle.id}?tab=registrations`
+
+  async function copyVin() {
+    try { await navigator.clipboard.writeText(vehicle.vin); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch { /* ignore */ }
+  }
+
+  return (
+    <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+      {vehicle.vin && (
+        <button type="button" onClick={copyVin} title="Copy VIN"
+          className="badge-slate font-mono hover:bg-white transition-colors">
+          {copied ? 'VIN copied ✓' : `VIN ${vehicle.vin}`}
+        </button>
+      )}
+      <Link to={regLink} className={`${regMeta.badge} hover:opacity-80`}
+        title={regTodo && reg?.registration_status !== 'current' ? `To-do: ${regTodo.title}` : 'Registrations'}>
+        {regText}
+      </Link>
+      {['safety', 'emissions'].map(type => {
+        const row = insp.find(r => r.inspection_type === type)
+        const st  = row?.expiry_status ?? 'unknown'
+        const cfg = INSP_CHIP[st] ?? INSP_CHIP.unknown
+        return (
+          <Link key={type} to={`/vehicles/${vehicle.id}?tab=inspections`} className={`${cfg.badge} hover:opacity-80`}>
+            {type === 'safety' ? 'Safety' : 'Emissions'}: {cfg.text}
+            {row?.next_due_date && st !== 'unknown' ? ` · ${format(parseISO(row.next_due_date), 'M/d/yy')}` : ''}
+          </Link>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function VehicleDetail() {
   const { id }             = useParams()
   const navigate           = useNavigate()
@@ -1114,18 +1199,16 @@ export default function VehicleDetail() {
             </p>
             <div className="flex items-center gap-2 mt-2 flex-wrap">
               <span className={statusColor}>{vehicle.status}</span>
-              {vehicle.current_plate && (
-                <span className="font-mono text-xs bg-primary-800 px-2 py-0.5 rounded text-primary-100">
-                  {vehicle.current_plate}
-                </span>
-              )}
               {vehicle.primary_driver && (
                 <span className="text-xs text-primary-300">Driver: {vehicle.primary_driver}</span>
               )}
             </div>
+            <HeaderChips vehicle={vehicle} />
           </div>
 
-          {/* Mileage */}
+          {/* Plate + mileage */}
+          <div className="flex flex-col items-end gap-2 flex-shrink-0">
+          {vehicle.current_plate && <HeaderPlate vehicle={vehicle} />}
           {mileageData?.current_mileage && (
             <div className="flex flex-col items-end flex-shrink-0">
               <div className="flex items-center gap-1 text-primary-200 text-xs mb-0.5">
@@ -1136,6 +1219,7 @@ export default function VehicleDetail() {
               </p>
             </div>
           )}
+          </div>
         </div>
 
         {/* Action buttons */}

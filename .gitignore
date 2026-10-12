@@ -5,3 +5,6 @@ dist
 *.local
 .DS_Store
 .claude/settings.local.json
+
+# Supabase CLI local state (written by `supabase link`)
+supabase/.temp/

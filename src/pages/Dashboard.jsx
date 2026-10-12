@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useMyOpenWork, PRIORITY_META } from '@/lib/pendingWork'
+import { useRegistrationStatusAll } from '@/lib/registrations'
 import { format, parseISO, differenceInDays } from 'date-fns'
 import { AlertTriangle, CheckCircle, Clock, Car, Plus, ShieldCheck, ShieldX } from 'lucide-react'
 
@@ -108,7 +109,33 @@ function InspectionCell({ row }) {
   )
 }
 
-function InspectionGrid({ data, vehicles }) {
+// Item 26: registration cell, same visual language as the inspection cells
+function RegistrationCell({ row }) {
+  const status = row?.registration_status || 'unknown'
+  const cfg = {
+    current:  { text: 'text-green-700', bg: 'bg-green-50', Icon: ShieldCheck },
+    due_soon: { text: 'text-amber-700', bg: 'bg-amber-50', Icon: Clock },
+    expired:  { text: 'text-red-700',   bg: 'bg-red-50',   Icon: AlertTriangle },
+    unknown:  { text: 'text-slate-400', bg: 'bg-slate-50', Icon: Clock },
+  }[status]
+  const { Icon } = cfg
+  const days = row?.days_until_expiry
+  const dateStr = row?.expiry_date ? format(parseISO(row.expiry_date), 'M/d/yy') : '—'
+  const subtext = status === 'expired' ? `Exp ${Math.abs(days)}d ago`
+    : status === 'due_soon' ? `Renew in ${days}d`
+    : dateStr
+  return (
+    <td className={`px-2 py-2 text-center ${cfg.bg}`}>
+      <Link to={`/vehicles/${row?.vehicle_id}?tab=registrations`} className="flex flex-col items-center gap-0.5">
+        <Icon size={13} className={cfg.text} />
+        <span className={`text-xs font-medium ${cfg.text}`}>{subtext}</span>
+      </Link>
+    </td>
+  )
+}
+
+function InspectionGrid({ data, vehicles, registrations }) {
+  const regByVehicle = Object.fromEntries((registrations || []).map(r => [r.vehicle_id, r]))
   // Build a map: vehicle_id → { safety, emissions }
   const byVehicle = {}
   ;(data || []).forEach(row => {
@@ -124,8 +151,10 @@ function InspectionGrid({ data, vehicles }) {
         <thead>
           <tr className="border-b border-slate-100">
             <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">Vehicle</th>
+            <th className="px-2 py-2 text-center text-xs font-medium text-slate-500">Registration</th>
             <th className="px-2 py-2 text-center text-xs font-medium text-slate-500">Safety</th>
             <th className="px-2 py-2 text-center text-xs font-medium text-slate-500">Emissions</th>
+            <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">Info</th>
           </tr>
         </thead>
         <tbody>
@@ -136,8 +165,17 @@ function InspectionGrid({ data, vehicles }) {
                   {v.name || `${v.year} ${v.make}`}
                 </Link>
               </td>
+              <RegistrationCell row={regByVehicle[v.id] ?? { vehicle_id: v.id }} />
               <InspectionCell row={byVehicle[v.id]?.safety} />
               <InspectionCell row={byVehicle[v.id]?.emissions} />
+              <td className="px-3 py-2 align-middle">
+                {(regByVehicle[v.id]?.plate || v.current_plate) && (
+                  <span className="inline-block font-mono text-[11px] font-semibold text-primary-900 border border-primary-800 rounded px-1 leading-4">
+                    {regByVehicle[v.id]?.plate || v.current_plate}
+                  </span>
+                )}
+                {v.vin && <span className="block font-mono text-[10px] text-slate-400 mt-0.5 whitespace-nowrap">{v.vin}</span>}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -280,14 +318,20 @@ export default function Dashboard() {
   const { profile, user } = useAuth()
   const vehicles    = useVehicles()
   const inspections = useInspectionStatus()
+  const registrations = useRegistrationStatusAll()
   const pending     = usePendingWorkOpen()
   const recent      = useRecentService()
 
   const today = format(new Date(), 'EEEE, MMMM d, yyyy')
 
-  const alertInspections = (inspections.data || []).filter(
-    r => r.expiry_status === 'expired' || r.expiry_status === 'due_soon' || r.expiry_status === 'failed'
-  )
+  // "All current" only when every active car's registration AND inspections are fine
+  const activeIds = new Set((vehicles.data || []).filter(v => v.status === 'active').map(v => v.id))
+  const alertInspections = [
+    ...(inspections.data || []).filter(
+      r => r.expiry_status === 'expired' || r.expiry_status === 'due_soon' || r.expiry_status === 'failed'),
+    ...(registrations.data || []).filter(
+      r => activeIds.has(r.vehicle_id) && (r.registration_status === 'expired' || r.registration_status === 'due_soon')),
+  ]
 
   return (
     <div className="flex flex-col gap-0">
@@ -312,7 +356,7 @@ export default function Dashboard() {
         {/* Inspection grid */}
         <section>
           <div className="flex items-center justify-between mb-2">
-            <h2 className="card-header mb-0">Inspections</h2>
+            <h2 className="card-header mb-0">Registration and Inspections</h2>
             {alertInspections.length === 0 && inspections.data?.length > 0 && (
               <span className="flex items-center gap-1 text-xs text-green-600">
                 <CheckCircle size={13} /> All current
@@ -321,7 +365,7 @@ export default function Dashboard() {
           </div>
           {inspections.isLoading
             ? <p className="text-sm text-slate-400 animate-pulse">Loading…</p>
-            : <InspectionGrid data={inspections.data} vehicles={vehicles.data} />
+            : <InspectionGrid data={inspections.data} vehicles={vehicles.data} registrations={registrations.data} />
           }
         </section>
 

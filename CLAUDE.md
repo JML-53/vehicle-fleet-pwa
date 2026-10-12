@@ -10,7 +10,7 @@
 
 ## Project Overview
 
-A mobile-first PWA for managing a personal vehicle fleet (4 active vehicles + 2 Jeep projects). Built with React 18 + Vite, hosted on Vercel, backed by Supabase (PostgreSQL 15).
+A mobile-first PWA for managing a personal vehicle fleet (4 active vehicles + 2 Jeep projects). Built with React 18 + Vite, hosted on Vercel, backed by Supabase (PostgreSQL 17).
 
 **Live URL:** deployed on Vercel (check `vercel.json` for config)
 **Supabase project:** credentials in `.env.local` (never commit)

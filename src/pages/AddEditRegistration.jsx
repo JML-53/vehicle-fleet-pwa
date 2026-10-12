@@ -1,10 +1,13 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import DeleteOrRequest from '@/components/DeleteOrRequest'
 import { ArrowLeft } from 'lucide-react'
+import LicensePlate from '@/components/LicensePlate'
+import PlateStylePicker from '@/components/PlateStylePicker'
+import { usePlateStyles, ensurePlateImage, plateImageUrl } from '@/lib/registrations'
 
 export default function AddEditRegistration() {
   const { id: vehicleId } = useParams()
@@ -24,12 +27,19 @@ export default function AddEditRegistration() {
     enabled: isEditing,
   })
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm({
-    defaultValues: { state: 'VA', is_current: true },
+  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm({
+    defaultValues: { state: 'VA', is_current: true, plate_style_id: '' },
   })
+  const { data: styles = [] } = usePlateStyles()
+  const styleId  = watch('plate_style_id')
+  const style    = styles.find(s => s.id === styleId)
+  const [previewUrl, setPreviewUrl] = useState(null)   // cached artwork, else the DMV thumbnail
+  useEffect(() => {
+    setPreviewUrl(style ? (plateImageUrl(style.image_path) || style.source_image_url || null) : null)
+  }, [style?.id, style?.image_path]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (existing) reset({ ...existing, is_current: existing.is_current ?? false })
+    if (existing) reset({ ...existing, is_current: existing.is_current ?? false, plate_style_id: existing.plate_style_id ?? '' })
   }, [existing, reset])
 
   const mutation = useMutation({
@@ -40,7 +50,10 @@ export default function AddEditRegistration() {
         registration_date: values.registration_date || null,
         expiry_date:       values.expiry_date       || null,
         is_current: values.is_current === true || values.is_current === 'true',
+        plate_style_id: values.plate_style_id || null,
       }
+      // Cache the chosen style's artwork from the DMV the first time it's used
+      if (style?.source_image_url && !style.image_path) await ensurePlateImage(style.id)
       if (isEditing) {
         const { vehicle_id, ...update } = payload
         const { error } = await supabase.from('registrations').update(update).eq('id', regId)
@@ -52,6 +65,9 @@ export default function AddEditRegistration() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['registrations', vehicleId] })
+      qc.invalidateQueries({ queryKey: ['registration_status'] })
+      qc.invalidateQueries({ queryKey: ['plate_styles'] })
+      qc.invalidateQueries({ queryKey: ['vehicle', vehicleId] })
       navigate(`/vehicles/${vehicleId}?tab=registrations`)
     },
   })
@@ -106,6 +122,18 @@ export default function AddEditRegistration() {
             <label className="field-label">Expiry Date</label>
             <input {...register('expiry_date')} type="date" className="field-input" />
           </div>
+        </div>
+
+        {/* Plate style (item 27) */}
+        <div className="card space-y-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <h2 className="card-header mb-0">Plate style</h2>
+            <LicensePlate plate={watch('plate')} state={watch('state') || 'VA'} imageUrl={previewUrl}
+              styleName={style?.name} size="md" />
+          </div>
+          <input type="hidden" {...register('plate_style_id')} />
+          <PlateStylePicker value={styleId} onChange={s => setValue('plate_style_id', s.id, { shouldDirty: true })} />
+          {style && <p className="text-xs text-slate-500">Selected: <span className="font-medium">{style.name}</span> · {style.category}</p>}
         </div>
 
         <label className="flex items-center gap-2 cursor-pointer">
