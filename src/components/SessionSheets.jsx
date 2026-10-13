@@ -17,7 +17,7 @@ import { useProfiles } from '@/lib/changeLog'
 import { PRIORITY_META, CLOSED, useFleetPendingWork, useShopsList, plannedSession, dueInfo, priorityRank } from '@/lib/pendingWork'
 import {
   useWorkSessions, createSession, addItemsToSession, moveItemToSession, removeSessionItem,
-  invalidateSessions, sessionLabel,
+  cancelSession, invalidateSessions, sessionLabel,
 } from '@/lib/workSessions'
 
 // ── Shared bits ──────────────────────────────────────────────────────────────
@@ -147,6 +147,18 @@ function useBusy() {
 
 const toggleIn = setter => id => setter(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
 
+/**
+ * After taking an item out of a session: if that left it empty, offer to cancel it
+ * (an empty planned session is otherwise left behind on the Pending Work page).
+ * `remaining` = planned items still in the session after the removal.
+ */
+export async function offerCancelIfEmpty(session, remaining) {
+  if (remaining > 0 || !session) return false
+  if (!confirm(`“${session.title}” has no other items now. Cancel the session too?`)) return false
+  await cancelSession(session.id)
+  return true
+}
+
 // ── Plan a session ───────────────────────────────────────────────────────────
 
 export function PlanSessionSheet({ onClose, defaultPerson = '' }) {
@@ -216,6 +228,11 @@ export function SessionPickerSheet({ item, onClose }) {
   const [fields, setFields] = useState(blankSession(item.assigned_to || ''))
   const others = sessions.filter(s => s.id !== current?.session?.id)
   const done = () => { invalidateSessions(qc, [item.vehicle_id]); onClose() }
+  // Planned items left in the current session once this one leaves it
+  const leftBehind = () => {
+    const s = sessions.find(x => x.id === current?.session?.id)
+    return (s?.items || []).filter(x => x.outcome == null && x.pending_work?.id !== item.id).length
+  }
 
   const save = () => run(async () => {
     if (creating) {
@@ -224,6 +241,7 @@ export function SessionPickerSheet({ item, onClose }) {
     } else {
       await moveItemToSession(item.id, pick)
     }
+    if (current) await offerCancelIfEmpty(current.session, leftBehind())
     done()
   })
 
@@ -240,7 +258,11 @@ export function SessionPickerSheet({ item, onClose }) {
         <div className="flex items-center gap-2 text-sm bg-primary-50 rounded-lg px-3 py-2">
           <span className="flex-1 min-w-0">Now in <strong>{sessionLabel(current.session)}</strong></span>
           <button type="button" disabled={busy} title="Take it out of this session"
-            onClick={() => run(async () => { await removeSessionItem(current.id); done() })}
+            onClick={() => run(async () => {
+              await removeSessionItem(current.id)
+              await offerCancelIfEmpty(current.session, leftBehind())
+              done()
+            })}
             className="inline-flex items-center gap-1 text-xs font-medium rounded-md border border-slate-200 bg-white px-2 py-1.5
                        text-slate-600 hover:text-red-600 hover:border-red-300 hover:bg-red-50">
             <Trash2 size={13} /> Remove

@@ -16,7 +16,7 @@ import {
   useWorkSession, updateSession, removeSessionItem, cancelSession, invalidateSessions,
   OUTCOME_META, SESSION_STATUS_META,
 } from '@/lib/workSessions'
-import { SessionFields, AddItemsSheet } from '@/components/SessionSheets'
+import { SessionFields, AddItemsSheet, offerCancelIfEmpty } from '@/components/SessionSheets'
 
 export default function SessionDetail() {
   const { sessionId } = useParams()
@@ -123,7 +123,12 @@ export default function SessionDetail() {
                         {si.outcome_note && <p className="text-xs text-slate-500 mt-1">{si.outcome_note}</p>}
                       </div>
                       {planned && si.outcome == null && (
-                        <button type="button" disabled={busy} onClick={() => run(() => removeSessionItem(si.id))}
+                        <button type="button" disabled={busy}
+                          onClick={() => run(async () => {
+                            await removeSessionItem(si.id)
+                            const left = items.filter(x => x.outcome == null && x.id !== si.id).length
+                            await offerCancelIfEmpty(s, left)
+                          })}
                           aria-label={`Take "${p.title}" out of this session`} title="Take it out of this session (it goes back to the Later list)"
                           className="shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-md border border-slate-200
                                      text-slate-500 hover:text-red-600 hover:border-red-300 hover:bg-red-50 transition-colors">
