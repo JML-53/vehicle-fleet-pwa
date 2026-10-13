@@ -18,6 +18,9 @@ import { useFleetPendingWork, CLOSED, priorityRank } from '@/lib/pendingWork'
 import { useStoredState } from '@/lib/useStoredState'
 import PendingCard from '@/components/PendingCard'
 import PendingActionSheet from '@/components/PendingSheets'
+import { PlanSessionSheet } from '@/components/SessionSheets'
+import { useWorkSessions, sessionLabel } from '@/lib/workSessions'
+import { CalendarDays, Plus } from 'lucide-react'
 
 const UNASSIGNED = 'unassigned'
 
@@ -43,6 +46,8 @@ export default function PendingWorkPage() {
   const [sortKey,    setSortKey]    = useStoredState('pending_sort', 'priority')
   const [showClosed, setShowClosed] = useStoredState('pending_show_completed', false)
   const [sheet,      setSheet]      = useState(null)   // { action, item }
+  const [planning,   setPlanning]   = useState(false)  // item 32: "+ Plan a session"
+  const { data: sessions = [] } = useWorkSessions('planned')
 
   // Deep-link values for this visit only; touching a control drops the override
   const [linked, setLinked] = useState(() => ({ person: params.get('person'), group: params.get('group') }))
@@ -154,10 +159,39 @@ export default function PendingWorkPage() {
           <button type="button" onClick={() => setShowClosed(s => !s)} className={chip(showClosed)}>
             Show completed
           </button>
+
+          <button type="button" onClick={() => setPlanning(true)}
+            className="ml-auto inline-flex items-center gap-1 bg-white text-primary-900 rounded-lg px-3 py-1.5 text-xs font-bold">
+            <Plus size={13} /> Plan a session
+          </button>
         </div>
       </div>
 
       <div className="p-4 space-y-5 max-w-2xl mx-auto">
+        {/* Item 32: planned sessions (trips to the shop / work days) */}
+        {sessions.length > 0 && (
+          <section>
+            <h2 className="card-header mb-2">Planned sessions</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {sessions.map(s => {
+                const open = (s.items || []).filter(i => i.outcome == null)
+                return (
+                  <Link key={s.id} to={`/sessions/${s.id}`}
+                    className="card py-3 hover:border-primary-300 transition-colors">
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-sm text-slate-800 truncate">{s.title}</span>
+                      <span className="badge-slate inline-flex items-center gap-1 shrink-0"><CalendarDays size={10} />{sessionLabel(s).split(' · ')[1]}</span>
+                    </span>
+                    <span className="block text-xs text-slate-500 mt-1">
+                      {(s.assigned_to && people[s.assigned_to]?.display_name) || 'Nobody yet'} · {s.shop?.name || 'DIY'} · {open.length} item{open.length === 1 ? '' : 's'}
+                    </span>
+                  </Link>
+                )
+              })}
+            </div>
+          </section>
+        )}
+
         {isLoading && <p className="text-slate-400 text-sm animate-pulse">Loading…</p>}
 
         {groups.map(g => (
@@ -190,6 +224,7 @@ export default function PendingWorkPage() {
       </div>
 
       {sheet && <PendingActionSheet {...sheet} onClose={() => setSheet(null)} />}
+      {planning && <PlanSessionSheet onClose={() => setPlanning(false)} defaultPerson={personId && person !== UNASSIGNED ? personId : ''} />}
     </div>
   )
 }

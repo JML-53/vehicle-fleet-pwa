@@ -15,7 +15,7 @@ import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
-import { ArrowLeft, FilePlus2, Link2, CheckCircle2, CircleDashed, X, Plus, Split, Merge, Hourglass } from 'lucide-react'
+import { ArrowLeft, FilePlus2, Link2, CheckCircle2, CircleDashed, X, Plus, Split, Merge, Hourglass, ChevronRight, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useProfiles } from '@/lib/changeLog'
@@ -67,6 +67,9 @@ export default function AddPendingWork() {
       reset(Object.fromEntries(FIELDS.map(f => [f, existing[f] ?? ''])))
     }
   }, [existing, reset])
+
+  // Following a "waiting on" link opens another item in this same form — start at the top
+  useEffect(() => { window.scrollTo(0, 0) }, [itemId])
 
   const shopChoice = watch('assigned_shop_id')
   useEffect(() => {
@@ -159,6 +162,8 @@ export default function AddPendingWork() {
         <h1 className="text-xl font-bold">
           {isEditing ? 'Edit Pending Work Item' : 'Add Pending Work Item'}
         </h1>
+        {/* Which item — so moving between linked items is obvious */}
+        {isEditing && existing && <p className="text-primary-100 text-sm font-medium mt-0.5">{existing.title}</p>}
         {reporter && <p className="text-primary-300 text-xs mt-0.5">Reported by {reporter}</p>}
         {isOpen && (
           <div className="flex flex-wrap gap-2 mt-3">
@@ -283,19 +288,27 @@ export default function AddPendingWork() {
               const b = d.blocker
               const bClosed = b && CLOSED.includes(b.status)
               return (
-                <div key={d.id} className="flex items-center gap-2 text-sm">
+                <div key={d.id} className="flex items-center gap-2 text-sm border border-slate-200 rounded-lg pl-3 pr-1 py-1">
                   <Hourglass size={13} className="text-slate-400 shrink-0" />
-                  <span className="flex-1 min-w-0">
-                    {d.kind === 'only_if_fails' ? 'Only if ' : 'After '}
-                    <Link to={`/vehicles/${b?.vehicle_id}/add-pending?edit=${b?.id}`} className="font-medium text-slate-800 hover:text-primary-700">
+                  {/* The text opens the other item; removing is the separate trash button */}
+                  <Link to={`/vehicles/${b?.vehicle_id}/add-pending?edit=${b?.id}`}
+                    title="Open this item"
+                    className="flex-1 min-w-0 py-1 group">
+                    <span className="text-slate-600">{d.kind === 'only_if_fails' ? 'Only if ' : 'After '}</span>
+                    <span className="font-medium text-primary-700 underline decoration-primary-300 group-hover:decoration-primary-700">
                       {b?.title}
-                    </Link>
-                    {d.kind === 'only_if_fails' && ' doesn\'t fix it'}
+                    </span>
+                    <span className="text-slate-600">{d.kind === 'only_if_fails' ? ' doesn\'t fix it' : ''}</span>
                     {bClosed && <span className="text-xs text-slate-500"> · {b.status}</span>}
-                  </span>
-                  <button type="button" disabled={linkAction.isPending} aria-label="Remove"
+                    <ChevronRight size={13} className="inline ml-0.5 text-primary-500 align-[-2px]" />
+                  </Link>
+                  <button type="button" disabled={linkAction.isPending}
+                    aria-label={`Remove "waiting on ${b?.title}"`} title="Remove this waiting-on link"
                     onClick={() => linkAction.mutate({ fn: () => removeWaitingOn(d.id) })}
-                    className="text-slate-300 hover:text-red-500 p-1.5"><X size={14} /></button>
+                    className="shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-md border border-slate-200
+                               text-slate-500 hover:text-red-600 hover:border-red-300 hover:bg-red-50 transition-colors">
+                    <Trash2 size={15} />
+                  </button>
                 </div>
               )
             })}

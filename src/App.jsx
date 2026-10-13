@@ -16,6 +16,8 @@ import AddEditDiagnostic from '@/pages/AddEditDiagnostic'
 import AddEditMod from '@/pages/AddEditMod'
 import AddEditRegistration from '@/pages/AddEditRegistration'
 import PendingWorkPage from '@/pages/PendingWorkPage'
+import SessionDetail from '@/pages/SessionDetail'
+import CloseOutSession from '@/pages/CloseOutSession'
 import MaintenanceSchedulePage from '@/pages/MaintenanceSchedulePage'
 import DocumentsPage from '@/pages/DocumentsPage'
 import DocumentDetail from '@/pages/DocumentDetail'
@@ -82,6 +84,8 @@ export default function App() {
 
         {/* Fleet-wide views */}
         <Route path="pending"            element={<PendingWorkPage />} />
+        <Route path="sessions/:sessionId"       element={<SessionDetail />} />
+        <Route path="sessions/:sessionId/close" element={<CloseOutSession />} />
         <Route path="maintenance"        element={<MaintenanceSchedulePage />} />
         <Route path="documents"            element={<DocumentsPage />} />
         <Route path="documents/upload"   element={<UploadDocument />} />

@@ -4,6 +4,7 @@
  *   split  → SplitPendingSheet   one item → separate items (each keeps every source)
  *   merge  → MergePendingSheet   fold a duplicate into this item
  *   wait   → WaitingOnSheet      "waiting on" another item (after | only if it fails)
+ *   session → SessionPickerSheet  plan in / move to / remove from a work session (2b)
  *   done   → CompletePendingSheet (item 23)
  *
  * PendingActionSheet picks one from { action, item } so pages hold one state.
@@ -17,6 +18,7 @@ import {
   splitItem, mergeItems, addWaitingOn, removeWaitingOn, invalidatePending, waitingInfo,
 } from '@/lib/pendingWork'
 import CompletePendingSheet from '@/components/CompletePendingSheet'
+import { SessionPickerSheet } from '@/components/SessionSheets'
 
 export default function PendingActionSheet({ action, item, onClose }) {
   if (!action || !item) return null
@@ -24,10 +26,12 @@ export default function PendingActionSheet({ action, item, onClose }) {
   if (action === 'split') return <SplitPendingSheet item={item} onClose={onClose} />
   if (action === 'merge') return <MergePendingSheet item={item} onClose={onClose} />
   if (action === 'wait')  return <WaitingOnSheet item={item} onClose={onClose} />
+  if (action === 'session') return <SessionPickerSheet item={item} onClose={onClose} />
   return null
 }
 
 export const PENDING_ACTIONS = [
+  ['session', 'Plan in a session…'],
   ['split', 'Split into separate items…'],
   ['merge', 'Merge a duplicate into this…'],
   ['wait',  'Waiting on…'],
@@ -233,9 +237,13 @@ function WaitingOnSheet({ item: opened, onClose }) {
         <div className="space-y-1">
           {current.map(w => (
             <div key={w.id} className="flex items-center gap-2 text-sm">
-              <span className={`${w.badge} whitespace-normal`}>{w.text}</span>
+              <span className={`${w.badge} whitespace-normal flex-1`}>{w.text}</span>
               <button type="button" disabled={busy} onClick={() => run(() => removeWaitingOn(w.id), { close: false })}
-                aria-label="Remove" className="text-slate-300 hover:text-red-500 p-1.5"><X size={14} /></button>
+                aria-label={`Remove "${w.text}"`} title="Remove this waiting-on link"
+                className="shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-md border border-slate-200
+                           text-slate-500 hover:text-red-600 hover:border-red-300 hover:bg-red-50 transition-colors">
+                <Trash2 size={15} />
+              </button>
             </div>
           ))}
         </div>

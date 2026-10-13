@@ -52,7 +52,11 @@ const DEPS_EMBED = `waits_on:pending_work_deps!pending_work_deps_pending_work_id
   blocks:pending_work_deps!pending_work_deps_blocked_by_id_fkey(id, kind,
     waiter:pending_work!pending_work_deps_pending_work_id_fkey(id, title, status, vehicle_id))`
 
-export const PENDING_SELECT = `*, ${LINKS_EMBED}, ${SOURCES_EMBED}, ${DEPS_EMBED},
+// Item 32 phase 2b: the session(s) an item is in (at most one planned)
+const SESSIONS_EMBED = `session_items:work_session_items(id, outcome,
+  session:work_sessions(id, title, planned_date, status, assigned_to))`
+
+export const PENDING_SELECT = `*, ${LINKS_EMBED}, ${SOURCES_EMBED}, ${DEPS_EMBED}, ${SESSIONS_EMBED},
   assigned_shop:shops!pending_work_assigned_shop_id_fkey(id, name, is_self),
   source_inspection:inspection_fulfillments!pending_work_source_inspection_fulfillment_id_fkey(id, inspection_date, result, inspections(inspection_type))`
 
@@ -351,6 +355,8 @@ export function invalidatePending(qc, vehicleId) {
   qc.invalidateQueries({ queryKey: ['pending_work_fleet'] })
   qc.invalidateQueries({ queryKey: ['pending_work_item'] })
   qc.invalidateQueries({ queryKey: ['pending_work_sources'] })
+  qc.invalidateQueries({ queryKey: ['work_sessions'] })
+  qc.invalidateQueries({ queryKey: ['work_session'] })
   if (vehicleId) {
     qc.invalidateQueries({ queryKey: ['service_visits',  vehicleId] })
     qc.invalidateQueries({ queryKey: ['service_history', vehicleId] })
@@ -398,6 +404,11 @@ export function waitingInfo(item) {
 }
 
 export const isWaiting = item => waitingInfo(item).some(w => w.blocking)
+
+/** The planned session an item is in: { id: session item id, session } or null. */
+export function plannedSession(item) {
+  return (item?.session_items || []).find(si => si.outcome == null && si.session?.status === 'planned') ?? null
+}
 
 /** The resolving link (latest record date) of an item, if any. */
 export function resolvingLink(item) {

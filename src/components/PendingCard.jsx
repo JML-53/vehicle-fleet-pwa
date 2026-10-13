@@ -9,8 +9,9 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { format, parseISO } from 'date-fns'
-import { Wrench, User, CheckCircle2, CircleDashed, Circle, MoreHorizontal, Hourglass } from 'lucide-react'
-import { PRIORITY_META, STATUS_META, CLOSED, resolvingLink, dueInfo, waitingInfo } from '@/lib/pendingWork'
+import { Wrench, User, CheckCircle2, CircleDashed, Circle, MoreHorizontal, Hourglass, CalendarDays } from 'lucide-react'
+import { PRIORITY_META, STATUS_META, CLOSED, resolvingLink, dueInfo, waitingInfo, plannedSession } from '@/lib/pendingWork'
+import { sessionLabel } from '@/lib/workSessions'
 import SourceChips from '@/components/SourceChips'
 import { PENDING_ACTIONS } from '@/components/PendingSheets'
 
@@ -34,6 +35,7 @@ export default function PendingCard({ item, people = {}, vehicleName, onDone, on
   const due      = dueInfo(item)
   const waits    = closed ? [] : waitingInfo(item)
   const blocked  = waits.some(w => w.blocking)
+  const session  = closed ? null : plannedSession(item)
   const open     = () => navigate(`/vehicles/${item.vehicle_id}/add-pending?edit=${item.id}`)
   const done     = onAction ? () => onAction('done', item) : onDone && (() => onDone(item))
 
@@ -57,9 +59,15 @@ export default function PendingCard({ item, people = {}, vehicleName, onDone, on
         <p className="text-xs text-slate-600 leading-relaxed mb-2 line-clamp-3">{item.description}</p>
       )}
 
-      {(item.assigned_shop || assignee || due) && (
+      {(item.assigned_shop || assignee || due || session) && (
         <div className="flex flex-wrap gap-1.5 mb-2">
           {due && <span className={due.badge}>{due.label}</span>}
+          {session && (
+            <Link to={`/sessions/${session.session.id}`} onClick={e => e.stopPropagation()} title="Open the session"
+              className="inline-flex items-center gap-1 text-xs font-semibold rounded-full px-2 py-0.5 bg-primary-100 text-primary-800 hover:underline">
+              <CalendarDays size={10} />{sessionLabel(session.session)}
+            </Link>
+          )}
           {item.assigned_shop && (
             <span className="badge-slate inline-flex items-center gap-1"><Wrench size={10} />{item.assigned_shop.name}</span>
           )}
@@ -72,9 +80,12 @@ export default function PendingCard({ item, people = {}, vehicleName, onDone, on
       {waits.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mb-2">
           {waits.map(w => (
-            <span key={w.id} className={`${w.badge} inline-flex items-center gap-1 whitespace-normal`}>
+            // Opens the item this one waits on (not this card's own item)
+            <Link key={w.id} to={`/vehicles/${w.dep.blocker.vehicle_id}/add-pending?edit=${w.dep.blocker.id}`}
+              onClick={e => e.stopPropagation()} title="Open the item this waits on"
+              className={`${w.badge} inline-flex items-center gap-1 whitespace-normal hover:underline`}>
               <Hourglass size={10} className="shrink-0" />{w.text}
-            </span>
+            </Link>
           ))}
         </div>
       )}
