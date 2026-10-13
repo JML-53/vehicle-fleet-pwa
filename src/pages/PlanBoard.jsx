@@ -17,7 +17,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { addDays, endOfWeek, startOfWeek, format, parseISO, startOfDay, isSameMonth } from 'date-fns'
-import { CalendarDays, Wrench, Hourglass, ChevronUp, ChevronDown, Plus, X, GripVertical } from 'lucide-react'
+import { CalendarDays, Wrench, Hourglass, ChevronUp, ChevronDown, Plus, X, GripVertical, Pencil } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useProfiles } from '@/lib/changeLog'
 import { useStoredState } from '@/lib/useStoredState'
@@ -311,6 +311,7 @@ export default function PlanBoard() {
                       className={`rounded-xl p-2 min-h-[52px] flex flex-col gap-2 transition-colors ${over === key ? 'bg-primary-100 ring-2 ring-primary-300' : 'bg-[#eef2f9]'}`}>
                       {c.sessions.map(s => (
                         <SessionCard key={s.id} s={s} itemById={itemById} today={buckets.today}
+                          onDate={() => setDateAsk({ session: s, bucket: null, date: s.planned_date || '' })}
                           dragProps={dragProps({ type: 'session', session: s })}
                           itemDragProps={si => dragProps({ type: 'item', item: itemById.get(si.pending_work.id) ?? si.pending_work, sessionId: s.id, sessionItemId: si.id })}
                           dropProps={dropProps(`s:${s.id}`, e => dropOnSession(s, e))} highlighted={over === `s:${s.id}`} />
@@ -356,7 +357,10 @@ export default function PlanBoard() {
                   {b.label} <span className="normal-case tracking-normal font-normal">· {b.key === 'later' ? 'in your order' : b.hint}</span>
                 </h2>
                 {!c.sessions.length && !c.done.length && !list.length && <p className="text-sm text-slate-400">Nothing here.</p>}
-                {c.sessions.map(s => <SessionCard key={s.id} s={s} itemById={itemById} today={buckets.today} />)}
+                {c.sessions.map(s => (
+                  <SessionCard key={s.id} s={s} itemById={itemById} today={buckets.today}
+                    onDate={() => setDateAsk({ session: s, bucket: null, date: s.planned_date || '' })} />
+                ))}
                 {c.done.map(s => <SessionCard key={s.id} s={s} itemById={itemById} today={buckets.today} done />)}
                 {list.map((it, i) => (
                   <LooseCard key={it.id} item={it} n={i + 1} onPlan={() => setSheet({ action: 'session', item: it })}
@@ -389,7 +393,7 @@ function VehChip({ name }) {
   return <span className="inline-block text-[11px] font-semibold text-primary-800 bg-primary-100 rounded px-1.5 whitespace-nowrap">{name}</span>
 }
 
-function SessionCard({ s, itemById, today, done, dragProps = {}, itemDragProps, dropProps = {}, highlighted }) {
+function SessionCard({ s, itemById, today, done, dragProps = {}, itemDragProps, dropProps = {}, highlighted, onDate }) {
   const planned = (s.items || []).filter(si => si.pending_work && (done || si.outcome == null))
   const vehicles = new Set(planned.map(si => si.pending_work.vehicle_id)).size
   const past = !done && s.planned_date && parseISO(s.planned_date) < today
@@ -399,10 +403,18 @@ function SessionCard({ s, itemById, today, done, dragProps = {}, itemDragProps, 
       <div className="flex items-start justify-between gap-2">
         <Link to={`/sessions/${s.id}`} className="font-semibold text-sm text-slate-800 hover:text-primary-700">{s.title}</Link>
         {done ? <span className="badge-green">Closed</span>
-          : <span className={past ? 'badge-amber' : 'badge-slate'} title={past ? 'Date has passed — close it out or change the date' : undefined}>
-              <CalendarDays size={10} className="inline -mt-0.5 mr-0.5" />
+          : (
+            // The date is a button: change it without dragging (the card follows to the right column)
+            <button type="button" onClick={onDate} disabled={!onDate}
+              draggable={false} onDragStart={e => e.preventDefault()}
+              title={past ? 'Date has passed — tap to change it (or close the session out)' : 'Change the date'}
+              aria-label={`Change the date for ${s.title}`}
+              className={`${past ? 'badge-amber' : 'badge-slate'} shrink-0 inline-flex items-center gap-1 hover:ring-2 hover:ring-primary-300 cursor-pointer`}>
+              <CalendarDays size={10} />
               {s.planned_date ? format(parseISO(s.planned_date), 'EEE M/d') : 'no date'}{past ? ' · past' : ''}
-            </span>}
+              <Pencil size={9} className="opacity-60" />
+            </button>
+          )}
       </div>
       <div className="text-xs text-slate-500 flex items-center gap-1">
         <Wrench size={11} />{s.shop?.name || 'DIY'} · {planned.length} item{planned.length === 1 ? '' : 's'}{vehicles > 1 ? ` · ${vehicles} vehicles` : ''}
@@ -456,21 +468,36 @@ function LooseCard({ item, n, dragProps = {}, dropProps = {}, highlighted, onPla
   )
 }
 
+/** Session date: after a drag to another column (ask.bucket set) or from the card's date button (ask.bucket null). */
 function DateDialog({ ask, label, onSave, onCancel }) {
   const [date, setDate] = useState(ask.date)
+  const shift = days => {
+    const base = date ? parseISO(date) : startOfDay(new Date())
+    setDate(format(addDays(base, days), 'yyyy-MM-dd'))
+  }
+  const nudge = 'text-xs font-medium rounded-md border border-slate-200 px-2.5 py-1.5 text-slate-700 hover:bg-slate-50'
   return (
     <div className="fixed inset-0 z-50" onClick={onCancel}>
       <div className="absolute inset-0 bg-black/40" />
       <div role="dialog" aria-label="Session date" onClick={e => e.stopPropagation()}
         className="absolute left-1/2 top-1/3 -translate-x-1/2 w-[min(92vw,380px)] bg-white rounded-2xl shadow-xl p-5 space-y-3">
-        <p className="font-semibold text-slate-800">Move “{ask.session.title}” to {label}</p>
+        <p className="font-semibold text-slate-800">
+          {ask.bucket ? <>Move “{ask.session.title}” to {label}</> : <>Date for “{ask.session.title}”</>}
+        </p>
         <label className="block">
           <span className="field-label">Date</span>
           <input type="date" className="field-input" value={date} onChange={e => setDate(e.target.value)} />
-          <span className="text-xs text-slate-400">{ask.bucket === 'later' ? 'Leave blank if it isn’t booked yet.' : 'Pick the day it’s booked for.'}</span>
+          {date && <span className="text-xs text-slate-500">{format(parseISO(date), 'EEEE, MMM d')}</span>}
         </label>
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Shift the date">
+          <button type="button" className={nudge} onClick={() => shift(-1)}>− 1 day</button>
+          <button type="button" className={nudge} onClick={() => shift(1)}>+ 1 day</button>
+          <button type="button" className={nudge} onClick={() => shift(7)}>+ 1 week</button>
+          <button type="button" className={nudge} onClick={() => setDate('')}>Not booked yet</button>
+        </div>
+        <p className="text-xs text-slate-400">The card moves to the matching column by itself.</p>
         <div className="flex gap-2 justify-end">
-          <button type="button" onClick={onCancel} className="btn-secondary">Keep the old date</button>
+          <button type="button" onClick={onCancel} className="btn-secondary">{ask.bucket ? 'Keep the old date' : 'Cancel'}</button>
           <button type="button" onClick={() => onSave(date)} className="btn-primary">Save date</button>
         </div>
       </div>
