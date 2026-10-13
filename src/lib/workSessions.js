@@ -9,7 +9,7 @@
  * visit form (autoMatchIds, item 12.2).
  */
 import { useQuery } from '@tanstack/react-query'
-import { format, parseISO } from 'date-fns'
+import { addDays, endOfWeek, format, parseISO, startOfDay } from 'date-fns'
 import { supabase } from '@/lib/supabase'
 import { autoMatchIds, syncMaintenanceLinks, invalidateMaintenance } from '@/lib/maintenanceMatch'
 import { invalidatePending } from '@/lib/pendingWork'
@@ -31,6 +31,18 @@ const SESSION_SELECT = `*, shop:shops(id, name, is_self),
   items:work_session_items(id, position, outcome, outcome_note, service_record_id, created_at,
     pending_work(id, title, status, priority, vehicle_id, due_date, assigned_to, description, vehicles(name))),
   visits:service_visits(id, vehicle_id, visit_date, vehicles(name))`
+
+/**
+ * Plan-board column for a date: 'week' (through this Sunday, past dates too),
+ * 'month' (next 30 days) or 'later' (beyond, or no date). Same rule as /plan.
+ */
+export function sessionBucket(date, now = new Date()) {
+  if (!date) return 'later'
+  const today    = startOfDay(now)
+  const weekEnd  = startOfDay(endOfWeek(today, { weekStartsOn: 1 }))
+  const d        = parseISO(date)
+  return d <= weekEnd ? 'week' : d <= addDays(today, 30) ? 'month' : 'later'
+}
 
 /** "NTB — tires · Sat 10/17" */
 export function sessionLabel(s) {

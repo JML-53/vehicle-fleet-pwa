@@ -30,7 +30,8 @@ Replaces `roadmap-task-clusters-0920.md` (kept for history). The live roadmap in
 | B-2 Modifications from service_records | new · low | Reuse 9.3's "one event, one record" approach |
 | 20 Multiple feedback entries per item | deferred · low | Joe's design is sound; also give Claude's impl_notes dated entries. Pairs with 29's dev advisor |
 | 9.1 Link old source documents | deferred · low | 9.5 covers new records; only pre-upload history remains |
-| **31** Dashboard Refinement | new · high · **next** | Mockup approved with 32 (canvas "Fleet Workflow Mockups", desktop rebalanced ~60/40): attention strip, one Vehicles table with mileage, tabbed Work panel (My work · Next up · High priority · Recent) using sessions + due dates. Joe's dashboard-feedback items to confirm before building |
+| **31** Dashboard Refinement | **ready_for_review** · high | Built 10/13 to the approved mockup: attention strip, one Vehicles table (+ mileage, projects collapsed), tabbed Work panel (My work · Next up · High priority · Recent), ~60/40 on wide screens. Joe to test (7 steps in impl_notes) |
+| App-wide page widths | — | Follow-up from 31: wider list/table pages (Pending Work, Changes, Roadmap), forms stay narrow |
 | Cleanup (from 32) | — | Later: drop the compatibility trigger + old `source*` columns once nothing reads them (do on item 34's local copy first) |
 | 9.6 Link documents to visits, parts, specs, modifications, registrations | new · medium | From Joe's 9.2 feedback (10/12) |
 | 33 Major dependency upgrades (React Router 7, Tailwind 4, Vite 8, vite-plugin-pwa 2) | new · medium | Remaining npm-audit work; React Router first (runtime). See Housekeeping |
