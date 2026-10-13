@@ -20,7 +20,7 @@ import PendingCard from '@/components/PendingCard'
 import PendingActionSheet from '@/components/PendingSheets'
 import { PlanSessionSheet } from '@/components/SessionSheets'
 import { useWorkSessions, sessionLabel } from '@/lib/workSessions'
-import { CalendarDays, Plus } from 'lucide-react'
+import { CalendarDays, CalendarRange, Plus } from 'lucide-react'
 
 const UNASSIGNED = 'unassigned'
 
@@ -160,8 +160,12 @@ export default function PendingWorkPage() {
             Show completed
           </button>
 
+          <Link to="/plan"
+            className="ml-auto inline-flex items-center gap-1 bg-primary-800 text-primary-100 hover:bg-primary-700 rounded-lg px-3 py-1.5 text-xs font-bold">
+            <CalendarRange size={13} /> Plan board
+          </Link>
           <button type="button" onClick={() => setPlanning(true)}
-            className="ml-auto inline-flex items-center gap-1 bg-white text-primary-900 rounded-lg px-3 py-1.5 text-xs font-bold">
+            className="inline-flex items-center gap-1 bg-white text-primary-900 rounded-lg px-3 py-1.5 text-xs font-bold">
             <Plus size={13} /> Plan a session
           </button>
         </div>

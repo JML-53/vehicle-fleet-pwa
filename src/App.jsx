@@ -18,6 +18,7 @@ import AddEditRegistration from '@/pages/AddEditRegistration'
 import PendingWorkPage from '@/pages/PendingWorkPage'
 import SessionDetail from '@/pages/SessionDetail'
 import CloseOutSession from '@/pages/CloseOutSession'
+import PlanBoard from '@/pages/PlanBoard'
 import MaintenanceSchedulePage from '@/pages/MaintenanceSchedulePage'
 import DocumentsPage from '@/pages/DocumentsPage'
 import DocumentDetail from '@/pages/DocumentDetail'
@@ -84,6 +85,7 @@ export default function App() {
 
         {/* Fleet-wide views */}
         <Route path="pending"            element={<PendingWorkPage />} />
+        <Route path="plan"                      element={<PlanBoard />} />
         <Route path="sessions/:sessionId"       element={<SessionDetail />} />
         <Route path="sessions/:sessionId/close" element={<CloseOutSession />} />
         <Route path="maintenance"        element={<MaintenanceSchedulePage />} />

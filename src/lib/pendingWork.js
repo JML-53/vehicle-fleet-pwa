@@ -332,6 +332,31 @@ export async function unlinkSource(linkId) {
   if (error) throw error
 }
 
+/** Plan board: hand an item to someone (null = Unassigned). */
+export async function setAssignee(itemId, personId) {
+  const { error } = await supabase.from('pending_work').update({ assigned_to: personId || null }).eq('id', itemId)
+  if (error) throw error
+}
+
+/** Plan board: save a person's Later order as rank 1..n (only rows that change). */
+export async function saveRanks(orderedItems) {
+  const changes = orderedItems
+    .map((it, i) => ({ id: it.id, rank: i + 1, was: it.rank }))
+    .filter(c => c.rank !== c.was)
+  for (const c of changes) {
+    const { error } = await supabase.from('pending_work').update({ rank: c.rank }).eq('id', c.id)
+    if (error) throw error
+  }
+}
+
+/** Later-list order: your rank first (unranked after), then priority, due date, age. */
+export function laterOrder(a, b) {
+  return (a.rank ?? 1e9) - (b.rank ?? 1e9)
+    || priorityRank(a.priority) - priorityRank(b.priority)
+    || (a.due_date || '9999').localeCompare(b.due_date || '9999')
+    || (a.identified_date || a.created_at || '').localeCompare(b.identified_date || b.created_at || '')
+}
+
 /** A free-text source ("Teri", "NTB 05/18/2026"): reuses the vehicle's note with that label. */
 export async function noteSourceId(vehicleId, label, date = null) {
   const { data, error } = await supabase.rpc('pending_source_id', {

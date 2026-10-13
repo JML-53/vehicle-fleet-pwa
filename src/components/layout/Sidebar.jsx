@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, Car, ClipboardList, Wrench,
-  FileText, LogOut, ChevronRight
+  FileText, LogOut, ChevronRight, CalendarRange
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSecondaryNav, badgeText } from './secondaryNav'
@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { to: '/',            label: 'Dashboard',        Icon: LayoutDashboard },
   { to: '/vehicles',    label: 'Vehicles',         Icon: Car },
   { to: '/pending',     label: 'Pending Work',     Icon: ClipboardList },
+  { to: '/plan',        label: 'Plan Board',       Icon: CalendarRange },
   { to: '/maintenance', label: 'Maint. Schedule',  Icon: Wrench },
   { to: '/documents',   label: 'Documents',        Icon: FileText },
 ]
