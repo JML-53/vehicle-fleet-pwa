@@ -49,7 +49,9 @@ export default function PendingCard({ item, people = {}, vehicleName, onDone, on
             {item.title}
           </p>
         </div>
-        <div className="flex gap-1.5 flex-shrink-0">
+        {/* Urgency at a glance: due date next to priority and status */}
+        <div className="flex flex-wrap justify-end gap-1.5 flex-shrink-0 max-w-[60%]">
+          {due && <span className={due.badge}>{due.label}</span>}
           {!closed && <span className={pr.badge}>{pr.label}</span>}
           <span className={st.badge}>{st.label}</span>
         </div>
@@ -59,38 +61,50 @@ export default function PendingCard({ item, people = {}, vehicleName, onDone, on
         <p className="text-xs text-slate-600 leading-relaxed mb-2 line-clamp-3">{item.description}</p>
       )}
 
-      {(item.assigned_shop || assignee || due || session) && (
-        <div className="flex flex-wrap gap-1.5 mb-2">
-          {due && <span className={due.badge}>{due.label}</span>}
+      {/* One labelled row per kind of detail; a row only shows when it has something */}
+      {(item.assigned_shop || assignee || item.source_links?.length || session || waits.length > 0) && (
+        <dl className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-2 gap-y-1.5 mb-2 text-xs">
+          {(item.assigned_shop || assignee) && (
+            <CardRow label="Who">
+              <span className="flex flex-wrap gap-x-3 gap-y-0.5 text-slate-700">
+                {item.assigned_shop && (
+                  <span className="inline-flex items-center gap-1"><Wrench size={11} className="text-slate-400" />
+                    <span className="text-slate-500">Shop</span> {item.assigned_shop.name}</span>
+                )}
+                {assignee && (
+                  <span className="inline-flex items-center gap-1"><User size={11} className="text-slate-400" />
+                    <span className="text-slate-500">Family member</span> {assignee}</span>
+                )}
+              </span>
+            </CardRow>
+          )}
+          {item.source_links?.length > 0 && (
+            <CardRow label="Source"><SourceChips item={item} /></CardRow>
+          )}
           {session && (
-            <Link to={`/sessions/${session.session.id}`} onClick={e => e.stopPropagation()} title="Open the session"
-              className="inline-flex items-center gap-1 text-xs font-semibold rounded-full px-2 py-0.5 bg-primary-100 text-primary-800 hover:underline">
-              <CalendarDays size={10} />{sessionLabel(session.session)}
-            </Link>
+            <CardRow label="Session">
+              <Link to={`/sessions/${session.session.id}`} onClick={e => e.stopPropagation()} title="Open the session"
+                className="inline-flex items-center gap-1 font-semibold rounded-full px-2 py-0.5 bg-primary-100 text-primary-800 hover:underline">
+                <CalendarDays size={11} />{sessionLabel(session.session)}
+              </Link>
+            </CardRow>
           )}
-          {item.assigned_shop && (
-            <span className="badge-slate inline-flex items-center gap-1"><Wrench size={10} />{item.assigned_shop.name}</span>
+          {waits.length > 0 && (
+            <CardRow label="Waiting on">
+              <span className="flex flex-wrap gap-1.5">
+                {waits.map(w => (
+                  // Opens the item this one waits on (not this card's own item)
+                  <Link key={w.id} to={`/vehicles/${w.dep.blocker.vehicle_id}/add-pending?edit=${w.dep.blocker.id}`}
+                    onClick={e => e.stopPropagation()} title="Open the item this waits on"
+                    className={`${w.badge} inline-flex items-center gap-1 whitespace-normal hover:underline`}>
+                    <Hourglass size={10} className="shrink-0" />{w.text.replace(/^Waiting on: /, '')}
+                  </Link>
+                ))}
+              </span>
+            </CardRow>
           )}
-          {assignee && (
-            <span className="badge-blue inline-flex items-center gap-1"><User size={10} />{assignee}</span>
-          )}
-        </div>
+        </dl>
       )}
-
-      {waits.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mb-2">
-          {waits.map(w => (
-            // Opens the item this one waits on (not this card's own item)
-            <Link key={w.id} to={`/vehicles/${w.dep.blocker.vehicle_id}/add-pending?edit=${w.dep.blocker.id}`}
-              onClick={e => e.stopPropagation()} title="Open the item this waits on"
-              className={`${w.badge} inline-flex items-center gap-1 whitespace-normal hover:underline`}>
-              <Hourglass size={10} className="shrink-0" />{w.text}
-            </Link>
-          ))}
-        </div>
-      )}
-
-      <SourceChips item={item} className="mb-2" />
 
       {resolved && (
         <p className="text-xs text-green-700 mb-1 flex items-center gap-1">
@@ -168,6 +182,16 @@ export default function PendingCard({ item, people = {}, vehicleName, onDone, on
         )}
       </div>
     </div>
+  )
+}
+
+/** A labelled row on the card: small grey label on the left, content on the right. */
+function CardRow({ label, children }) {
+  return (
+    <>
+      <dt className="text-slate-400 font-medium pt-0.5">{label}</dt>
+      <dd className="min-w-0">{children}</dd>
+    </>
   )
 }
 
