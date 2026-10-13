@@ -1,4 +1,4 @@
-# Project status — 2026-10-12
+# Project status — 2026-10-13
 
 Replaces `roadmap-task-clusters-0920.md` (kept for history). The live roadmap in the app is the source of truth; this file is the plan and the open questions around it.
 
@@ -12,6 +12,8 @@ Replaces `roadmap-task-clusters-0920.md` (kept for history). The live roadmap in
 | 28 | Failed inspections: Failed (purple), grace-period re-test date, repair items, auto-close on pass |
 | 9 · 9.3 · 9.4 · 9.5 · 24 | Read-first document upload (Opus 5.5), one review screen, "Also found" (inspection, DTCs, recommended work), one event = one record, source-document links, visit titles |
 | 26 · 27 | Registration status on Dashboard + vehicle header chips; VA plate styles (DMV catalog) with plate graphic |
+| 30 | Vehicle filter on Pending Work (approved 10/12) |
+| 32 | Manage workflow (approved 10/13): shared sources (many:many), split / merge, "waiting on", due dates, per-line inspection repairs, work sessions with close-out (outcomes + new findings), Plan board `/plan` (people × weeks, drag, date button) |
 
 ## Rollout
 
@@ -28,9 +30,8 @@ Replaces `roadmap-task-clusters-0920.md` (kept for history). The live roadmap in
 | B-2 Modifications from service_records | new · low | Reuse 9.3's "one event, one record" approach |
 | 20 Multiple feedback entries per item | deferred · low | Joe's design is sound; also give Claude's impl_notes dated entries. Pairs with 29's dev advisor |
 | 9.1 Link old source documents | deferred · low | 9.5 covers new records; only pre-upload history remains |
-| 30 Filter by vehicle on Pending Work page | ready_for_review | Built + verified 10/12; Joe to test and approve |
-| **32** Manage workflow | **ready_for_review** · medium · phases 1–3 built 10/12 (Plan board at `/plan`) | Mockups approved. Schema live (`20261015_workflow_sources_sessions.sql`, test 21/21). Cleanup A–F run 10/12. 2a and 2b tested by Joe 10/12. **Phase 3 Plan board built 10/12** — Joe to test after push, then approve. **Next: item 31 Dashboard** (phase 4) |
-| **31** Dashboard Refinement | new · high | Options in impl_notes (attention strip, one Vehicles table with mileage, tabbed Work panel, two-column on wide screens). Built after 32 phase 1–2; mockups together with 32 |
+| **31** Dashboard Refinement | new · high · **next** | Mockup approved with 32 (canvas "Fleet Workflow Mockups", desktop rebalanced ~60/40): attention strip, one Vehicles table with mileage, tabbed Work panel (My work · Next up · High priority · Recent) using sessions + due dates. Joe's dashboard-feedback items to confirm before building |
+| Cleanup (from 32) | — | Later: drop the compatibility trigger + old `source*` columns once nothing reads them (do on item 34's local copy first) |
 | 9.6 Link documents to visits, parts, specs, modifications, registrations | new · medium | From Joe's 9.2 feedback (10/12) |
 | 33 Major dependency upgrades (React Router 7, Tailwind 4, Vite 8, vite-plugin-pwa 2) | new · medium | Remaining npm-audit work; React Router first (runtime). See Housekeeping |
 | **34** Local Supabase dev environment in Docker (+ learning path) | new · medium | **Do before 29.** Joe installs Docker Desktop + WSL2; then baseline (live has no migration history, and migration file versions collide — fix before any `db push`), seed data, local/live switching, local function testing, written workflow + tutorial |
