@@ -7,6 +7,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      injectRegister: false, // registered in main.jsx so updates reload the page
       includeAssets: ['favicon.ico', 'icons/*.png'],
       manifest: {
         name: 'Fleet Manager',
@@ -26,6 +27,10 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        // A new deploy's worker takes over right away (main.jsx then reloads the
+        // page) instead of waiting for every app tab to close.
+        skipWaiting: true,
+        clientsClaim: true,
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/.*\.supabase\.co\/.*/i,
