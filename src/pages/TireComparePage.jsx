@@ -150,7 +150,7 @@ function Comparison({ vehicleId, vehicleName }) {
     const [cur] = state.setups
     const curTire = parseTireSize(cur.tire)
     const curWheel = resolveWheel(cur, null)
-    const base = curTire ? { tire: curTire, ext: packageExtents(curTire, curWheel) } : null
+    const base = curTire ? { tire: curTire, ext: packageExtents(curTire, curWheel), needsWidth: curWheel.needsWidth } : null
     return state.setups.map((s, i) => {
       const tire = parseTireSize(s.tire)
       const wheel = i === 0 ? curWheel : resolveWheel(s, curWheel)
@@ -220,11 +220,12 @@ function Comparison({ vehicleId, vehicleName }) {
 
 // ---- Inputs ----
 
-function NumField({ label, hint, value, onChange, placeholder, className = '' }) {
+function NumField({ label, hint, value, onChange, placeholder, warn, className = '' }) {
   return (
     <label className={`block ${className}`}>
       <span className="field-label text-xs">{label}</span>
-      <input type="text" inputMode="decimal" className="field-input" value={value ?? ''}
+      <input type="text" inputMode="decimal" value={value ?? ''}
+        className={`field-input ${warn ? 'border-amber-500 ring-1 ring-amber-400' : ''}`}
         placeholder={placeholder} onChange={e => onChange(e.target.value.replace(/[^\d.\-]/g, ''))} />
       {hint && <span className="block text-[11px] text-slate-400 mt-0.5 leading-tight">{hint}</span>}
     </label>
@@ -237,7 +238,8 @@ function SetupCard({ r, isCurrent, curWheel, onChange, onRemove }) {
   const { setup: s, tire, wheel } = r
   const same = isCurrent ? '' : 'same as current'
   // Show the typed position value as is, and the other one calculated.
-  const offsetShown = s.posMode === 'offset' ? s.offsetMm : (wheel.inherited ? '' : round(wheel.offsetMm, 0))
+  const ownNeedsWidth = wheel.needsWidth && s.posMode === 'backspacing' && s.backspacing !== ''
+  const offsetShown = s.posMode !== 'backspacing' ? s.offsetMm : (wheel.inherited ? '' : round(wheel.offsetMm, 0))
   const bsShown = s.posMode === 'backspacing' ? s.backspacing : (wheel.inherited ? '' : round(wheel.backspacing, 2))
 
   return (
@@ -269,6 +271,7 @@ function SetupCard({ r, isCurrent, curWheel, onChange, onRemove }) {
           <div className="field-input bg-slate-50 text-slate-600">{tire ? `${tire.rim}"` : '—'}</div>
         </label>
         <NumField label="Width (in)" value={s.wheelWidth} onChange={v => onChange({ wheelWidth: v })}
+          warn={ownNeedsWidth}
           placeholder={isCurrent ? 'e.g. 9.5' : curWheel.width != null ? String(curWheel.width) : same} />
         {!isCurrent
           ? <NumField label='Lift vs now (in)' value={s.lift} onChange={v => onChange({ lift: v })} placeholder="0" />
@@ -276,12 +279,19 @@ function SetupCard({ r, isCurrent, curWheel, onChange, onRemove }) {
       </div>
       <div className="grid grid-cols-2 gap-2">
         <NumField label="Offset (mm)" value={offsetShown}
-          placeholder={isCurrent ? 'e.g. 45' : same}
+          placeholder={ownNeedsWidth ? 'needs width' : isCurrent ? 'e.g. 45' : same}
           onChange={v => onChange({ posMode: 'offset', offsetMm: v })} />
         <NumField label="or Backspacing (in)" value={bsShown}
           placeholder={isCurrent ? 'e.g. 4.5' : same}
           onChange={v => onChange({ posMode: 'backspacing', backspacing: v })} />
       </div>
+      {wheel.needsWidth && (
+        <p className="text-xs text-amber-700 -mt-1">
+          {ownNeedsWidth
+            ? "Enter the wheel width: backspacing is measured from the wheel's inner edge, so it can't be placed (or turned into offset) without it."
+            : "Inner/outer clearance waits for the current wheel's width."}
+        </p>
+      )}
     </div>
   )
 }
@@ -304,6 +314,7 @@ function ResultsTable({ rows, gaps, axleRatio }) {
     if (!i) return { value: hasGap(k) ? fmtIn(+gaps[k]) : '—' }
     const res = r.result
     if (!res) return { value: '—' }
+    if (k !== 'top' && !res.lateral) return { value: '—', sub: 'needs wheel width' }
     if (hasGap(k)) return { value: fmtIn(res[remainingKey]), level: clearanceLevel(res[remainingKey]), sub: fmtSigned(gapChange(res)) }
     return { value: fmtSigned(reach(res)) }
   }
@@ -311,7 +322,8 @@ function ResultsTable({ rows, gaps, axleRatio }) {
     { label: 'Tire', get: r => ({ value: r.tire ? r.tire.label : '—' }) },
     { label: 'Wheel', get: r => ({
       value: r.tire ? `${r.tire.rim}" × ${r.wheel.width ?? '?'}"` : '—',
-      sub: r.wheel.positionKnown ? `ET ${Math.round(r.wheel.offsetMm)} · BS ${r.wheel.backspacing != null ? r.wheel.backspacing.toFixed(2) + '"' : '?'}` : 'position not set',
+      level: r.wheel.needsWidth ? 'amber' : null,
+      sub: r.wheel.needsWidth ? 'needs wheel width' : r.wheel.positionKnown ? `ET ${Math.round(r.wheel.offsetMm)} · BS ${r.wheel.backspacing != null ? r.wheel.backspacing.toFixed(2) + '"' : '?'}` : 'position not set',
     }) },
     { label: 'Overall diameter', get: (r, i) => r.result && ({
       value: fmtIn(r.result.diameter),
@@ -376,8 +388,9 @@ function Diagrams({ rows, base, gaps }) {
   const height = maxD + Math.max(top, 2) + maxRise + 3
   const sideW = maxD + 6
   // Front view: one lateral window for every panel so widths compare by eye.
-  const reachIn = Math.max(base.result.ext.inboard + (inner ?? 0), ...rows.map(r => r.result.ext.inboard))
-  const reachOut = Math.max(base.result.ext.outboard + (outer ?? 0), ...rows.map(r => r.result.ext.outboard))
+  const placed = rows.filter(r => r.result.lateral)
+  const reachIn = Math.max(base.result.ext.inboard + (inner ?? 0), ...placed.map(r => r.result.ext.inboard))
+  const reachOut = Math.max(base.result.ext.outboard + (outer ?? 0), ...placed.map(r => r.result.ext.outboard))
   const front = { span: Math.max(reachIn + reachOut + 4, 20), x0: reachIn + 2 }
 
   return (
@@ -394,8 +407,12 @@ function Diagrams({ rows, base, gaps }) {
             <p className="text-[11px] text-slate-400 mt-2 mb-0.5 flex justify-between">
               <span>← inboard</span><span>front view, top half</span><span>outboard →</span>
             </p>
-            <FrontView r={r} base={base} isBase={i === 0} inner={inner} outer={outer} height={height}
-              cropBelow={maxD * 0.45} cropAbove={maxD + 1.5} {...front} />
+            {r.result.lateral ? (
+              <FrontView r={r} base={base} isBase={i === 0} inner={inner} outer={outer} height={height}
+                cropBelow={maxD * 0.45} cropAbove={maxD + 1.5} {...front} />
+            ) : (
+              <p className="text-xs text-amber-700 bg-amber-50 rounded p-3">Front view needs the wheel width.</p>
+            )}
           </figure>
         ))}
       </div>

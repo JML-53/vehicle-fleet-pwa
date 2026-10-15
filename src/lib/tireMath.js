@@ -63,14 +63,21 @@ const num = v => (v === '' || v == null || Number.isNaN(+v) ? null : +v)
 /**
  * Resolve one setup's wheel against the current one. A blank wheel width
  * or position means "same as current", so tire-only comparisons still work.
+ * Backspacing is measured from the wheel's inner edge, so it can't be placed
+ * without a width: then needsWidth is set and the position stays unknown
+ * (never silently swapped for the current one).
  *   setup = { wheelWidth, offsetMm, backspacing, posMode: 'offset' | 'backspacing' }
  */
 export function resolveWheel(setup, current) {
   const width = num(setup.wheelWidth) ?? (current ? current.width : null)
+  const bsTyped = setup.posMode === 'backspacing' && num(setup.backspacing) != null
+  if (bsTyped && width == null) {
+    return { width, offsetMm: null, backspacing: num(setup.backspacing), positionKnown: false, inherited: false, needsWidth: true }
+  }
   let offsetMm = null
-  if (setup.posMode === 'backspacing' && num(setup.backspacing) != null && width != null) {
+  if (bsTyped) {
     offsetMm = offsetFromBackspacing(num(setup.backspacing), width)
-  } else if (num(setup.offsetMm) != null) {
+  } else if (setup.posMode !== 'backspacing' && num(setup.offsetMm) != null) {
     offsetMm = num(setup.offsetMm)
   }
   const inherited = offsetMm == null
@@ -81,6 +88,7 @@ export function resolveWheel(setup, current) {
     backspacing: width != null && offsetMm != null ? backspacingFromOffset(offsetMm, width) : null,
     positionKnown: offsetMm != null,
     inherited,
+    needsWidth: current ? !!current.needsWidth && inherited : false,
   }
 }
 
@@ -113,14 +121,16 @@ export function clearanceLevel(inches) {
  * Compare one setup against the current one.
  *   gaps  = { top, inner, outer } measured on the vehicle today (optional)
  *   axleRatio optional (e.g. 4.10) for effective-gearing numbers
+ * Inner/outer numbers are null while either wheel position is unknown.
  */
 export function compareSetup({ tire, wheel, lift = 0 }, base, gaps = {}, axleRatio = null) {
+  const lateral = !wheel.needsWidth && !base.needsWidth
   const ext = packageExtents(tire, wheel)
   const dD = tire.diameter - base.tire.diameter
   const ratio = tire.diameter / base.tire.diameter
   const axleRise = dD / 2
-  const inboardGrowth = ext.inboard - base.ext.inboard
-  const outboardGrowth = ext.outboard - base.ext.outboard
+  const inboardGrowth = lateral ? ext.inboard - base.ext.inboard : null
+  const outboardGrowth = lateral ? ext.outboard - base.ext.outboard : null
   const g = { top: num(gaps.top), inner: num(gaps.inner), outer: num(gaps.outer) }
   const ar = num(axleRatio)
 
@@ -137,12 +147,13 @@ export function compareSetup({ tire, wheel, lift = 0 }, base, gaps = {}, axleRat
     inboardGrowth,
     outboardGrowth,
     gapTop: g.top == null ? null : g.top + (num(lift) ?? 0) - axleRise,
-    gapInner: g.inner == null ? null : g.inner - inboardGrowth,
-    gapOuter: g.outer == null ? null : g.outer - outboardGrowth,
+    gapInner: g.inner == null || !lateral ? null : g.inner - inboardGrowth,
+    gapOuter: g.outer == null || !lateral ? null : g.outer - outboardGrowth,
     speedoAt60: 60 * ratio,
     effectiveRatio: ar ? ar / ratio : null,
     ratioToRestore: ar ? ar * ratio : null,
     ext,
+    lateral,
   }
 }
 
