@@ -2,7 +2,7 @@
 
 Replaces `roadmap-task-clusters-0920.md` (kept for history). The live roadmap in the app is the source of truth; this file is the plan and the open questions around it.
 
-## Done (approved) since moving to Claude Code — Oct 4–12
+## Done (approved) since moving to Claude Code — Oct 4–13
 
 | Item | What |
 |---|---|
@@ -13,6 +13,7 @@ Replaces `roadmap-task-clusters-0920.md` (kept for history). The live roadmap in
 | 9 · 9.3 · 9.4 · 9.5 · 24 | Read-first document upload (Opus 5.5), one review screen, "Also found" (inspection, DTCs, recommended work), one event = one record, source-document links, visit titles |
 | 26 · 27 | Registration status on Dashboard + vehicle header chips; VA plate styles (DMV catalog) with plate graphic |
 | 30 | Vehicle filter on Pending Work (approved 10/12) |
+| 31 | Dashboard (approved 10/13): needs-attention strip, one Vehicles table with mileage, tabbed Work panel, ~60/40 on wide screens |
 | 32 | Manage workflow (approved 10/13): shared sources (many:many), split / merge, "waiting on", due dates, per-line inspection repairs, work sessions with close-out (outcomes + new findings), Plan board `/plan` (people × weeks, drag, date button) |
 
 ## Rollout
@@ -30,7 +31,6 @@ Replaces `roadmap-task-clusters-0920.md` (kept for history). The live roadmap in
 | B-2 Modifications from service_records | new · low | Reuse 9.3's "one event, one record" approach |
 | 20 Multiple feedback entries per item | deferred · low | Joe's design is sound; also give Claude's impl_notes dated entries. Pairs with 29's dev advisor |
 | 9.1 Link old source documents | deferred · low | 9.5 covers new records; only pre-upload history remains |
-| **31** Dashboard Refinement | **ready_for_review** · high | Built 10/13 to the approved mockup: attention strip, one Vehicles table (+ mileage, projects collapsed), tabbed Work panel (My work · Next up · High priority · Recent), ~60/40 on wide screens. Joe to test (7 steps in impl_notes) |
 | App-wide page widths | — | Follow-up from 31: wider list/table pages (Pending Work, Changes, Roadmap), forms stay narrow |
 | Cleanup (from 32) | — | Later: drop the compatibility trigger + old `source*` columns once nothing reads them (do on item 34's local copy first) |
 | 9.6 Link documents to visits, parts, specs, modifications, registrations | new · medium | From Joe's 9.2 feedback (10/12) |
