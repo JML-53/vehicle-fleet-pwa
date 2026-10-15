@@ -403,23 +403,29 @@ function Diagrams({ rows, base, gaps }) {
               <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: r.color }} />
               {r.setup.label} <span className="font-normal text-slate-500">{r.tire.label}</span>
             </figcaption>
-            <SideView r={r} base={base} isBase={i === 0} top={top} height={height} w={sideW} />
-            <p className="text-[11px] text-slate-400 mt-2 mb-0.5 flex justify-between">
-              <span>← inboard</span><span>front view, top half</span><span>outboard →</span>
+            {/* Columns sized in proportion to the two viewBox widths (no gap), and both
+                viewBoxes are the same height, so side and front share one inches-to-pixels scale. */}
+            <div className="grid items-end" style={{ gridTemplateColumns: `${sideW}fr ${front.span}fr` }}>
+              <SideView r={r} base={base} isBase={i === 0} top={top} height={height} w={sideW} />
+              {r.result.lateral ? (
+                <FrontView r={r} base={base} isBase={i === 0} inner={inner} outer={outer} height={height} {...front} />
+              ) : (
+                <p className="text-[11px] text-amber-700 bg-amber-50 rounded p-2 self-stretch">
+                  Front view needs the wheel width.
+                </p>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1 grid" style={{ gridTemplateColumns: `${sideW}fr ${front.span}fr` }}>
+              <span className="text-center">side</span>
+              <span className="flex justify-between"><span>← in</span><span>front</span><span>out →</span></span>
             </p>
-            {r.result.lateral ? (
-              <FrontView r={r} base={base} isBase={i === 0} inner={inner} outer={outer} height={height}
-                cropBelow={maxD * 0.45} cropAbove={maxD + 1.5} {...front} />
-            ) : (
-              <p className="text-xs text-amber-700 bg-amber-50 rounded p-3">Front view needs the wheel width.</p>
-            )}
           </figure>
         ))}
       </div>
       <p className="text-[11px] text-slate-400 mt-3">
         Side view with the ground at the bottom; dashed grey = current tire. Front view looks at the
         driver-side wheel from the front; the solid vertical line is the hub face. All panels share one
-        scale (front views are zoomed relative to side views).
+        scale, side and front views included.
         {gaps.top || gaps.inner || gaps.outer ? ' Red dashed = wheel-well lip / suspension / fender from your measurements.' : ''}
       </p>
     </div>
@@ -457,7 +463,7 @@ function SideView({ r, base, isBase, top, height, w }) {
   )
 }
 
-function FrontView({ r, base, isBase, inner, outer, height, span, x0, cropBelow, cropAbove }) {
+function FrontView({ r, base, isBase, inner, outer, height, span, x0 }) {
   const xp = v => x0 + v // outboard positive
   const y = v => height - v
   const t = r.tire, c = r.result.ext.centre
@@ -468,7 +474,7 @@ function FrontView({ r, base, isBase, inner, outer, height, span, x0, cropBelow,
   if (inner != null) lineX.push(xp(-(base.result.ext.inboard + inner)))
   if (outer != null) lineX.push(xp(base.result.ext.outboard + outer))
   return (
-    <svg viewBox={`0 ${(height - cropAbove) * PX} ${span * PX} ${(cropAbove - cropBelow) * PX}`}
+    <svg viewBox={`0 0 ${span * PX} ${height * PX}`}
       className="w-full h-auto bg-slate-50 rounded"
       role="img" aria-label={`Front view of ${t.label}`}>
       <g transform={`scale(${PX})`} strokeWidth={0.15}>
@@ -483,9 +489,9 @@ function FrontView({ r, base, isBase, inner, outer, height, span, x0, cropBelow,
           <rect x={xp(bc - bt.width / 2)} y={y(bt.diameter)} width={bt.width} height={bt.diameter}
             rx={Math.min(bt.sidewall * 0.45, bt.width / 3)} fill="none" stroke="#94a3b8" strokeDasharray="0.8 0.6" />
         )}
-        <line x1={xp(0)} x2={xp(0)} y1={y(0)} y2={y(cropAbove)} stroke={r.color} strokeWidth={0.25} />
+        <line x1={xp(0)} x2={xp(0)} y1={y(0)} y2={y(height - 0.5)} stroke={r.color} strokeWidth={0.25} />
         {lineX.map(x => (
-          <line key={x} x1={x} x2={x} y1={y(1)} y2={y(cropAbove)} stroke="#ef4444" strokeWidth={0.25}
+          <line key={x} x1={x} x2={x} y1={y(1)} y2={y(height - 0.5)} stroke="#ef4444" strokeWidth={0.25}
             strokeDasharray="1 0.6" />
         ))}
       </g>
