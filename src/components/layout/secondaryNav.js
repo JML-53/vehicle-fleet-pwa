@@ -3,7 +3,7 @@
  * "More" sheet. Order per roadmap item 25: Users sits below Dev Roadmap,
  * just above the signed-in user.
  */
-import { History, ListTodo, Users } from 'lucide-react'
+import { CircleDot, History, ListTodo, Users } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useUnseenChangeCount } from '@/lib/changeLog'
 
@@ -11,6 +11,7 @@ export function useSecondaryNav() {
   const { isAdmin } = useAuth()
   const unseen = useUnseenChangeCount()
   const items = [
+    { to: '/tools/tires', label: 'Tire Compare', Icon: CircleDot },
     { to: '/changes',     label: 'Changes',     Icon: History,  badge: unseen },
     { to: '/roadmap',     label: 'Dev Roadmap', Icon: ListTodo },
     ...(isAdmin ? [{ to: '/admin/users', label: 'Users', Icon: Users }] : []),

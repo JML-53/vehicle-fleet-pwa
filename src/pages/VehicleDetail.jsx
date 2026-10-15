@@ -12,7 +12,7 @@ import LicensePlate from '@/components/LicensePlate'
 import { useRegistrationStatus, REG_STATUS_META, plateImageUrl } from '@/lib/registrations'
 import PendingActionSheet from '@/components/PendingSheets'
 import { format, parseISO, isBefore, addDays } from 'date-fns'
-import { Plus, ArrowLeft, Gauge, Pencil, Upload, Link2, ChevronDown, ChevronUp, ShieldCheck, ShieldX, AlertTriangle, Clock } from 'lucide-react'
+import { Plus, ArrowLeft, Gauge, Pencil, Upload, Link2, ChevronDown, ChevronUp, ShieldCheck, ShieldX, AlertTriangle, Clock, CircleDot } from 'lucide-react'
 
 // ---- Data hooks ----
 
@@ -753,7 +753,11 @@ function SpecsTab({ vehicleId }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <Link to={`/tools/tires?vehicle=${vehicleId}`}
+          className="inline-flex items-center gap-1.5 btn-secondary text-xs py-1.5 px-3">
+          <CircleDot size={13} /> Compare tire sizes
+        </Link>
         <Link to={`/vehicles/${vehicleId}/add-spec`}
           className="inline-flex items-center gap-1.5 btn-primary text-xs py-1.5 px-3">
           <Plus size={13} /> Add Spec
