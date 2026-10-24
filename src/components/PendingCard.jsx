@@ -14,6 +14,7 @@ import { PRIORITY_META, STATUS_META, CLOSED, resolvingLink, dueInfo, waitingInfo
 import { sessionLabel } from '@/lib/workSessions'
 import SourceChips from '@/components/SourceChips'
 import { PENDING_ACTIONS } from '@/components/PendingSheets'
+import { askMechanic } from '@/lib/mechanic'
 
 function recordLink(vehicleId, rec) {
   if (!rec) return null
@@ -169,6 +170,18 @@ export default function PendingCard({ item, people = {}, vehicleName, onDone, on
                           {label}
                         </button>
                       ))}
+                      <button type="button" role="menuitem"
+                        onClick={() => {
+                          setMenu(false)
+                          askMechanic(navigate, {
+                            vehicleId: item.vehicle_id,
+                            prompt: `Help me with this job: ${item.title}${item.description ? `. ${item.description}` : ''}`,
+                            entry: { kind: 'pending item', id: item.id, label: item.title },
+                          })
+                        }}
+                        className="block w-full text-left px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50 border-t border-slate-100">
+                        Ask the mechanic about this…
+                      </button>
                       <button type="button" role="menuitem" onClick={() => { setMenu(false); open() }}
                         className="block w-full text-left px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50 border-t border-slate-100">
                         Edit item

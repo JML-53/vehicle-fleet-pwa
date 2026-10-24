@@ -97,3 +97,20 @@
 .bottom-nav {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
+
+/* Mechanic answers (item 29): Markdown from react-markdown, sized for phones */
+.chat-md { @apply text-sm text-slate-800 leading-relaxed space-y-2.5 break-words; }
+.chat-md h1, .chat-md h2, .chat-md h3, .chat-md h4 { @apply font-semibold text-slate-900 pt-1; }
+.chat-md h1, .chat-md h2 { @apply text-base; }
+.chat-md h3, .chat-md h4 { @apply text-sm; }
+.chat-md ul { @apply list-disc pl-5 space-y-1; }
+.chat-md ol { @apply list-decimal pl-5 space-y-1.5; }
+.chat-md li > p { @apply inline; }
+.chat-md strong { @apply font-semibold text-slate-900; }
+.chat-md a { @apply text-primary-700 underline decoration-primary-500/40; }
+.chat-md code { @apply bg-slate-100 rounded px-1 text-[0.8125rem]; }
+.chat-md blockquote { @apply border-l-4 border-amber-300 pl-3 text-slate-700; }
+.chat-md hr { @apply border-slate-200; }
+.chat-md table { @apply block overflow-x-auto text-xs border-collapse; }
+.chat-md th, .chat-md td { @apply border border-slate-200 px-2 py-1 text-left align-top; }
+.chat-md th { @apply bg-slate-50 font-semibold; }

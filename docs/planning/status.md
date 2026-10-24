@@ -25,7 +25,7 @@ Replaces `roadmap-task-clusters-0920.md` (kept for history). The live roadmap in
 
 | Item | Status | Next step |
 |---|---|---|
-| **29** AI Expert Mechanic + AI Development Advisor | new · high | **Joe to answer the questions below**, then plan phase 1 |
+| **29** AI Expert Mechanic + AI Development Advisor | ready_for_review · high | **Phase 1a built and live-tested 10/24** (chat, save cards, spec trust, AI usage page). Joe: push, test on the phone, create the mechanic's API key ($50 limit). Next: 1b guides + paid voice |
 | 10 Admin interface — enum half | partial · medium | Read path exists (`enum_values`, `EDITABLE_ENUMS`). Needs admin write RPC (`ALTER TYPE … ADD/RENAME VALUE`) and the "can't drop an enum value" decision (lookup table vs hidden list) |
 | 2 Vehicle profile photo | new · low | Fill-in work |
 | B-2 Modifications from service_records | new · low | Reuse 9.3's "one event, one record" approach |
@@ -35,18 +35,31 @@ Replaces `roadmap-task-clusters-0920.md` (kept for history). The live roadmap in
 | Cleanup (from 32) | — | Later: drop the compatibility trigger + old `source*` columns once nothing reads them (do on item 34's local copy first) |
 | 9.6 Link documents to visits, parts, specs, modifications, registrations | new · medium | From Joe's 9.2 feedback (10/12) |
 | 33 Major dependency upgrades (React Router 7, Tailwind 4, Vite 8, vite-plugin-pwa 2) | new · medium | Remaining npm-audit work; React Router first (runtime). See Housekeeping |
-| **34** Local Supabase dev environment in Docker (+ learning path) | new · medium | **Do before 29.** Joe installs Docker Desktop + WSL2; then baseline (live has no migration history, and migration file versions collide — fix before any `db push`), seed data, local/live switching, local function testing, written workflow + tutorial |
+| **34** Local Supabase dev environment in Docker (+ learning path) | new · medium | Not needed for 29's phases 1a/1b/2 (AI saves only to add-only knowledge tables; pending work goes through the normal form). Needed before any in-chat operational actions. Joe installs Docker Desktop + WSL2; then baseline (live has no migration history, and migration file versions collide — fix before any `db push`), seed data, local/live switching, local function testing, written workflow + tutorial |
 
-## Item 29 — open questions for Joe
+## Item 29 — decisions (10/24)
 
-Proposed phases: (1) mechanic chat with vehicle context + web search → (2) voice → (3) confirmed actions (pending items, parts lists) → (4) dev advisor read-only data audits + proposals.
+Full write-up, including Joe's four use cases, in item 29's `impl_notes`.
 
-1. **Who** uses each persona — mechanic for everyone, dev advisor admin-only?
-2. **Monthly AI budget** you're comfortable with (drives model, effort, how much history is read).
-3. **Voice**: essential for v1 or fast-follow? (Browser speech recognition + read-aloud is free and works hands-free in Chrome/Android; partial on iPhone.)
-4. **Save conversations** per vehicle so the mechanic remembers prior diagnoses?
-5. **Parts sources** you prefer (RockAuto, NTB, local stores…) and price vs brand priority.
-6. **Mechanic actions**: advise only, or also create pending items / parts lists after you confirm?
+**Use cases:** (1) saved DIY job guides with every step, mistakes, best practices and all specs; (2) decision aid, like the Rover tire choice; (3) troubleshooting → repair plan; (4) live help on a multi-day job (R2's Sniper EFI tune). In all cases, specs and procedures are saved to the vehicle.
+
+**Decisions:**
+1. Dev advisor **split**: admin Data health page (SQL checks + AI explanations/fix cards) + Claude Code `/fleet-audit` skill.
+2. Phase **1a chat → 1b guides**. Pending work goes through **open-in-form** (pre-filled existing form; the user saves).
+   - 2b. **Spec trust:** source + reference on every AI-saved spec; "unverified" badge until checked; safety-critical values from model memory never saved.
+3. **Paid voice service**, planned with 1b; Android is the test platform; vendor chosen then.
+4. **Opus 5.5**, effort per task, own workspace + key with a **$50/month** hard cap; admin AI-usage view.
+5. Conversations **shared per vehicle**.
+6. Parts: **good / better / OEM** tiers; RockAuto, local chain stores, vehicle specialists first.
+
+**Phases:**
+- **1a** mechanic chat: context incl. specs/notes/mods/manuals; web search; photos; Save spec / Save note cards; open-in-form; usage log; caller-verification helper (also fixes `parse-document`).
+- **1b** Guides tab + check-off mode + paid voice.
+- **2** Data health + `/fleet-audit`.
+
+**Knowledge base = the mechanic's memory:** existing `known_specs`, `vehicle_notes` and `modifications`, plus a new `procedures` table (Guides). Gap: R2's Sniper EFI isn't in Modifications yet.
+
+**Joe's prep for 1a:** create the mechanic's Anthropic workspace + API key with a $50 limit, and set it himself with `npx supabase secrets set ANTHROPIC_MECHANIC_API_KEY=…`.
 
 Design guardrails already agreed in principle: Claude calls only from Edge Functions (key never in the browser); the dev advisor reads through narrow RPCs (no arbitrary SQL) and every fix needs approval through normal app paths (audit log + permissions apply); safety-critical specs (brakes, jacking, fuel, airbags, torque values) are cited and flagged when uncertain.
 

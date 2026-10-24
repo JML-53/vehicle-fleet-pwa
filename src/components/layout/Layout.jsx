@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import BottomNav from './BottomNav'
+import MechanicButton from '@/components/mechanic/MechanicButton'
 
 export default function Layout() {
   return (
@@ -15,6 +16,9 @@ export default function Layout() {
 
       {/* Mobile bottom nav */}
       <BottomNav />
+
+      {/* Item 29: the mechanic, one tap from anywhere */}
+      <MechanicButton />
     </div>
   )
 }

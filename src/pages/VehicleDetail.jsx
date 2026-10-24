@@ -12,7 +12,9 @@ import LicensePlate from '@/components/LicensePlate'
 import { useRegistrationStatus, REG_STATUS_META, plateImageUrl } from '@/lib/registrations'
 import PendingActionSheet from '@/components/PendingSheets'
 import { format, parseISO, isBefore, addDays } from 'date-fns'
-import { Plus, ArrowLeft, Gauge, Pencil, Upload, Link2, ChevronDown, ChevronUp, ShieldCheck, ShieldX, AlertTriangle, Clock, CircleDot } from 'lucide-react'
+import { Plus, ArrowLeft, Gauge, Pencil, Upload, Link2, ChevronDown, ChevronUp, ShieldCheck, ShieldX, AlertTriangle, Clock, CircleDot, MessagesSquare, ShieldAlert, CheckCircle2 } from 'lucide-react'
+import { askMechanic, isUnverified, SPEC_SOURCE_LABEL, VERIFICATION_LABEL, hostname } from '@/lib/mechanic'
+import { useAuth } from '@/contexts/AuthContext'
 
 // ---- Data hooks ----
 
@@ -735,6 +737,12 @@ function NotesTab({ vehicleId }) {
             </div>
           </div>
           <p className="text-sm text-slate-700 leading-relaxed">{note.note_text}</p>
+          {note.conversation_id && (
+            <Link to={`/mechanic/${note.conversation_id}`}
+              className="inline-flex items-center gap-1 text-xs text-primary-700 hover:underline mt-1.5">
+              <MessagesSquare size={11} /> From a mechanic chat
+            </Link>
+          )}
         </div>
       ))}
     </div>
@@ -775,6 +783,7 @@ function SpecsTab({ vehicleId }) {
                   <td className="text-slate-600 w-1/2">{spec.spec_name}</td>
                   <td className="font-medium text-slate-800">
                     {spec.spec_value}{spec.units ? ` ${spec.units}` : ''}
+                    <SpecTrust spec={spec} vehicleId={vehicleId} />
                   </td>
                   <td className="w-8">
                     <button onClick={() => navigate(`/vehicles/${vehicleId}/add-spec?edit=${spec.id}`)}
@@ -786,6 +795,64 @@ function SpecsTab({ vehicleId }) {
           </table>
         </div>
       ))}
+    </div>
+  )
+}
+
+/**
+ * Where a spec came from and whether anyone checked it (item 29, decision 2b).
+ * Specs entered by the family (source empty) show nothing.
+ */
+function SpecTrust({ spec, vehicleId }) {
+  const qc = useQueryClient()
+  const { user } = useAuth()
+  const [choosing, setChoosing] = useState(false)
+  const verify = useMutation({
+    mutationFn: async verification => {
+      const { error } = await supabase.from('known_specs')
+        .update({ verification, verified_at: new Date().toISOString(), verified_by: user?.id })
+        .eq('id', spec.id)
+      if (error) throw error
+    },
+    onSuccess: () => { setChoosing(false); qc.invalidateQueries({ queryKey: ['known_specs', vehicleId] }) },
+  })
+  if (!spec.source || spec.source === 'family') return null
+
+  const ref = spec.source_ref
+  const from = (
+    <span className="text-slate-500">
+      from {SPEC_SOURCE_LABEL[spec.source] ?? spec.source}
+      {ref && (/^https?:\/\//.test(ref)
+        ? <> · <a href={ref} target="_blank" rel="noopener noreferrer" className="underline">{hostname(ref)}</a></>
+        : <> · {ref}</>)}
+    </span>
+  )
+  return (
+    <div className="mt-1 text-xs font-normal space-y-1">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        {isUnverified(spec)
+          ? <span className="badge-amber">unverified</span>
+          : <span className="inline-flex items-center gap-1 text-green-700"><CheckCircle2 size={11} />{VERIFICATION_LABEL[spec.verification]}</span>}
+        {spec.safety_critical && <span className="inline-flex items-center gap-0.5 text-red-700"><ShieldAlert size={11} /> safety-critical</span>}
+        {from}
+        {spec.conversation_id && (
+          <Link to={`/mechanic/${spec.conversation_id}`} className="text-primary-700 hover:underline">chat</Link>
+        )}
+      </div>
+      {isUnverified(spec) && !choosing && (
+        <button type="button" onClick={() => setChoosing(true)}
+          className="text-primary-700 underline decoration-primary-500/40 hover:text-primary-900">Mark verified…</button>
+      )}
+      {choosing && (
+        <div className="flex flex-wrap gap-1.5">
+          {Object.entries(VERIFICATION_LABEL).map(([k, label]) => (
+            <button key={k} type="button" disabled={verify.isPending} onClick={() => verify.mutate(k)}
+              className="btn-secondary text-xs py-1 px-2">{label}</button>
+          ))}
+          <button type="button" onClick={() => setChoosing(false)} className="text-slate-500 px-1">Cancel</button>
+        </div>
+      )}
+      {verify.isError && <p className="text-red-600">{verify.error.message}</p>}
     </div>
   )
 }
@@ -828,7 +895,14 @@ function DiagnosticTab({ vehicleId }) {
                     {code.resolution || '—'}
                     <SourceDocLink documentId={code.document_id} label="Source" className="block mt-0.5" />
                   </td>
-                  <td>
+                  <td className="whitespace-nowrap">
+                    <button onClick={() => askMechanic(navigate, {
+                      vehicleId,
+                      prompt: `What could be causing ${code.code}${code.description ? ` (${code.description})` : ''} on this vehicle, and how should I track it down?`,
+                      entry: { kind: 'trouble code', id: code.id, label: code.code },
+                    })}
+                      title="Ask the mechanic about this code"
+                      className="text-slate-400 hover:text-primary-600 p-1"><MessagesSquare size={12} /></button>
                     <button onClick={() => navigate(`/vehicles/${vehicleId}/add-diagnostic?edit=${code.id}`)}
                       className="text-slate-400 hover:text-primary-600 p-1"><Pencil size={12} /></button>
                   </td>
@@ -973,6 +1047,19 @@ function InspectionRow({ row }) {
                 Repairs: {p.title} · {p.status.replace('_', ' ')}
               </Link>
             ))}
+            {status === 'failed' && (
+              <button type="button"
+                onClick={() => askMechanic(navigate, {
+                  vehicleId: row.vehicle_id,
+                  prompt: `This vehicle failed its ${row.inspection_type} inspection` +
+                    `${repairs.length ? ` (repairs needed: ${repairs.map(p => p.title).join('; ')})` : ''}.` +
+                    ' What will it take to pass the re-test, and what can I do myself?',
+                  entry: { kind: 'failed inspection', id: row.fulfillment_id, label: `${row.inspection_type} inspection` },
+                })}
+                className="mt-1.5 flex items-center gap-1 text-xs text-primary-700 hover:text-primary-900 underline decoration-primary-500/40">
+                <MessagesSquare size={12} /> Ask the mechanic about the re-test
+              </button>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-0.5 flex-shrink-0">
@@ -1237,6 +1324,11 @@ export default function VehicleDetail() {
           >
             <Pencil size={13} /> Edit
           </Link>
+          <button type="button" onClick={() => askMechanic(navigate, { vehicleId: id })}
+            className="inline-flex items-center gap-1.5 bg-primary-800 hover:bg-primary-700 text-primary-200
+                       font-semibold text-sm px-3 py-1.5 rounded-lg transition-colors">
+            <MessagesSquare size={13} /> Ask mechanic
+          </button>
         </div>
 
         {/* Tab bar */}

@@ -11,7 +11,7 @@
  * Split / Merge (PendingSheets).
  */
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams, useLocation, Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
@@ -44,6 +44,9 @@ export default function AddPendingWork() {
   const qc        = useQueryClient()
   const isEditing = !!itemId
   const { profile } = useAuth()
+  // Item 29: the mechanic's "Open in form" card pre-fills a new item; the user checks it and saves
+  const location  = useLocation()
+  const prefill   = isEditing ? null : location.state?.prefill
 
   const { data: existing }      = usePendingItem(itemId)
   const { data: shops = [] }    = useShopsList()
@@ -52,11 +55,14 @@ export default function AddPendingWork() {
   const [linking, setLinking]   = useState(false)
   const [sheet, setSheet]       = useState(null)   // split | merge | wait
   const [newShop, setNewShop]   = useState(null)   // null | '' (adding) | name
-  const [staged, setStaged]     = useState([])     // new item: [{ key, source }] linked after insert
+  const [staged, setStaged]     = useState(() => prefill   // new item: [{ key, source }] linked after insert
+    ? [{ key: 'new:mechanic', source: { kind: 'note', label: `Mechanic chat ${format(new Date(), 'MM/dd/yyyy')}` } }]
+    : [])
 
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm({
     defaultValues: {
-      title: '', description: '', priority: 'medium', status: 'pending', estimated_cost: '',
+      title: prefill?.title ?? '', description: prefill?.description ?? '',
+      priority: prefill?.priority ?? 'medium', status: 'pending', estimated_cost: '',
       identified_date: today(), due_date: '',
       assigned_shop_id: '', assigned_to: '', notes: '',
     },
@@ -165,6 +171,7 @@ export default function AddPendingWork() {
         {/* Which item — so moving between linked items is obvious */}
         {isEditing && existing && <p className="text-primary-100 text-sm font-medium mt-0.5">{existing.title}</p>}
         {reporter && <p className="text-primary-300 text-xs mt-0.5">Reported by {reporter}</p>}
+        {prefill && <p className="text-amber-300 text-xs mt-1">Filled in by the mechanic. Check it, then add the item.</p>}
         {isOpen && (
           <div className="flex flex-wrap gap-2 mt-3">
             <button type="button" onClick={() => setSheet('split')}

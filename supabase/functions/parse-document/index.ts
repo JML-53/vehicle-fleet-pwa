@@ -20,8 +20,8 @@
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import Anthropic from "npm:@anthropic-ai/sdk"
+import { requireUser } from "../_shared/auth.ts"
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -154,11 +154,9 @@ serve(async (req) => {
   }
 
   try {
+    // A signed-in family member only — the gateway alone accepts the public anon key
+    const { service: supabase } = await requireUser(req)
     const body = await req.json()
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-    )
 
     // ── 1. Resolve the file ──────────────────────────────────────────────────
     let storagePath: string, mimeType: string | null, filename: string | null
