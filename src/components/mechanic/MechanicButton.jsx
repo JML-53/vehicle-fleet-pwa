@@ -1,13 +1,14 @@
 /**
  * Floating "Ask the mechanic" button on every screen (item 29). On a
  * vehicle's pages it opens the mechanic on that vehicle. Hidden on the
- * mechanic itself and on forms, where it would cover the Save button.
+ * mechanic itself, on forms (it would cover Save) and in a guide's check-off
+ * mode (which has its own "Ask about this step").
  */
 import { useLocation, useNavigate } from 'react-router-dom'
 import { MessagesSquare } from 'lucide-react'
 import { askMechanic } from '@/lib/mechanic'
 
-const HIDDEN_ON = /^\/mechanic|\/(add-[^/]*|edit|new|review|close|upload(-document)?)$/
+const HIDDEN_ON = /^\/mechanic|\/run\/|\/(add-[^/]*|edit|new|review|close|upload(-document)?)$/
 const VEHICLE   = /^\/vehicles\/([0-9a-f-]{36})/i
 
 export default function MechanicButton() {

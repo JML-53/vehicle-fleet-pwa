@@ -12,8 +12,9 @@ import LicensePlate from '@/components/LicensePlate'
 import { useRegistrationStatus, REG_STATUS_META, plateImageUrl } from '@/lib/registrations'
 import PendingActionSheet from '@/components/PendingSheets'
 import { format, parseISO, isBefore, addDays } from 'date-fns'
-import { Plus, ArrowLeft, Gauge, Pencil, Upload, Link2, ChevronDown, ChevronUp, ShieldCheck, ShieldX, AlertTriangle, Clock, CircleDot, MessagesSquare, ShieldAlert, CheckCircle2 } from 'lucide-react'
+import { Plus, ArrowLeft, Gauge, Pencil, Upload, Link2, ChevronDown, ChevronUp, ShieldCheck, ShieldX, AlertTriangle, Clock, CircleDot, MessagesSquare, ShieldAlert, CheckCircle2, BookOpen } from 'lucide-react'
 import { askMechanic, isUnverified, SPEC_SOURCE_LABEL, VERIFICATION_LABEL, hostname } from '@/lib/mechanic'
+import { useGuides, DIFFICULTY_META } from '@/lib/guides'
 import { useAuth } from '@/contexts/AuthContext'
 
 // ---- Data hooks ----
@@ -799,6 +800,46 @@ function SpecsTab({ vehicleId }) {
   )
 }
 
+/** Saved job guides (item 29, phase 1b): written by the mechanic, checked off on the phone */
+function GuidesTab({ vehicleId }) {
+  const { data, isLoading } = useGuides(vehicleId)
+  const navigate = useNavigate()
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        <button type="button"
+          onClick={() => askMechanic(navigate, { vehicleId, intent: 'guide', prompt: 'Make a guide for: ' })}
+          className="inline-flex items-center gap-1.5 btn-primary text-xs py-1.5 px-3">
+          <BookOpen size={13} /> Make a guide
+        </button>
+      </div>
+      {isLoading && <Loading />}
+      {!isLoading && !data?.length && (
+        <Empty message="No guides yet. Ask the mechanic to make one for a job you'll do yourself, like an oil change or a brake job." />
+      )}
+      {(data || []).map(g => {
+        const diff = DIFFICULTY_META[g.body?.difficulty]
+        const active = (g.guide_runs || []).some(r => r.status === 'active')
+        return (
+          <Link key={g.id} to={`/guides/${g.id}`} className="card block hover:border-primary-500 transition-colors">
+            <div className="flex items-start justify-between gap-2">
+              <p className="font-semibold text-sm text-slate-800">{g.title}</p>
+              <div className="flex flex-wrap justify-end gap-1.5 shrink-0">
+                {active && <span className="badge-blue">in progress</span>}
+                {g.verified_at ? <span className="badge-green">worked as written</span> : <span className="badge-amber">not yet verified</span>}
+              </div>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              {diff && `${diff.label} · `}{g.body?.time_estimate && `${g.body.time_estimate} · `}
+              {(g.body?.steps || []).length} steps · version {g.version} · {(g.guide_runs || []).length} job{(g.guide_runs || []).length === 1 ? '' : 's'}
+            </p>
+          </Link>
+        )
+      })}
+    </div>
+  )
+}
+
 /**
  * Where a spec came from and whether anyone checked it (item 29, decision 2b).
  * Specs entered by the family (source empty) show nothing.
@@ -1136,6 +1177,7 @@ const TABS = [
   { id: 'service',      label: 'Service History' },
   { id: 'visits',       label: 'Visits' },
   { id: 'pending',      label: 'Pending Work' },
+  { id: 'guides',       label: 'Guides' },
   { id: 'maintenance',  label: 'Maintenance' },
   { id: 'inspections',  label: 'Inspections' },
   { id: 'mods',         label: 'Modifications' },
@@ -1350,6 +1392,7 @@ export default function VehicleDetail() {
         {tab === 'service'       && <ServiceHistoryTab vehicleId={id} />}
         {tab === 'visits'        && <ServiceVisitsTab  vehicleId={id} />}
         {tab === 'pending'       && <PendingWorkTab    vehicleId={id} />}
+        {tab === 'guides'        && <GuidesTab         vehicleId={id} />}
         {tab === 'maintenance'   && <MaintenanceTab    vehicleId={id} />}
         {tab === 'inspections'   && <InspectionsTab    vehicleId={id} />}
         {tab === 'mods'          && <ModsTab           vehicleId={id} />}

@@ -15,9 +15,14 @@ export const MONTHLY_CAP_USD = 50   // keep in step with MECHANIC_MONTHLY_CAP_US
 
 const FN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mechanic-chat`
 
-/** Open the mechanic, optionally on a vehicle with a starter question (not sent until the user taps Send). */
-export function askMechanic(navigate, { vehicleId, prompt, entry } = {}) {
-  navigate('/mechanic', { state: { vehicleId, prompt, entry } })
+/**
+ * Open the mechanic, optionally on a vehicle with a starter question (not sent
+ * until the user taps Send). intent 'guide' = writing a guide (high effort);
+ * guideRunId ties a new chat to a job in progress; conversationId reopens one.
+ */
+export function askMechanic(navigate, { vehicleId, prompt, entry, intent, guideRunId, conversationId } = {}) {
+  navigate(conversationId ? `/mechanic/${conversationId}` : '/mechanic',
+    { state: { vehicleId, prompt, entry, intent, guideRunId } })
 }
 
 /**
@@ -127,18 +132,26 @@ export function useConversation(id) {
   })
 }
 
-/** source_tool_use_id of every card already saved from this conversation */
-export function useSavedCards(conversationId) {
+/**
+ * Ids of the cards already saved from this conversation: specs and notes by
+ * source_tool_use_id; guides by tool_use_ids (every card saved into a guide,
+ * so an older version's card still reads "saved").
+ */
+export function useSavedCards(conversationId, guideCardIds = []) {
   return useQuery({
-    queryKey: ['ai_saved_cards', conversationId],
+    queryKey: ['ai_saved_cards', conversationId, guideCardIds.join(',')],
     queryFn: async () => {
-      const [specs, notes] = await Promise.all([
+      const [specs, notes, guides] = await Promise.all([
         supabase.from('known_specs').select('source_tool_use_id').eq('conversation_id', conversationId),
         supabase.from('vehicle_notes').select('source_tool_use_id').eq('conversation_id', conversationId),
+        guideCardIds.length
+          ? supabase.from('guides').select('id, tool_use_ids').overlaps('tool_use_ids', guideCardIds)
+          : Promise.resolve({ data: [] }),
       ])
-      if (specs.error) throw specs.error
-      if (notes.error) throw notes.error
-      return new Set([...specs.data, ...notes.data].map(r => r.source_tool_use_id).filter(Boolean))
+      for (const r of [specs, notes, guides]) if (r.error) throw r.error
+      const saved = new Map([...specs.data, ...notes.data].filter(r => r.source_tool_use_id).map(r => [r.source_tool_use_id, true]))
+      for (const g of guides.data) for (const id of g.tool_use_ids) saved.set(id, g.id)   // card id → guide id
+      return saved
     },
     enabled: !!conversationId,
   })
@@ -152,6 +165,7 @@ const ACTIVITY = {
   get_vehicle_record: () => 'Looked at a vehicle record',
   search_records:     i => `Searched your records: ${i?.query ?? ''}`,
   read_document:      () => 'Opened a document',
+  read_guide:         () => 'Read a saved guide',
 }
 
 /**
@@ -171,6 +185,7 @@ export function toChatItems(messages = []) {
   const items = []
   let turn = null
   for (const m of messages) {
+    if (m.role === 'system') continue   // effort changes: not part of the conversation people see
     if (m.role === 'user') {
       const typed  = m.content.filter(b => b.type === 'text' && !b.text.startsWith(CONTEXT_PREFIX))
       const images = m.content.filter(b => b.type === 'image' && b.source?.type === 'storage' && b.source.path.startsWith('mechanic/'))

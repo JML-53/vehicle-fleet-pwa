@@ -54,7 +54,7 @@ export function UserBubble({ item, authorName }) {
   )
 }
 
-export function AssistantBubble({ item, conversationId, saved, streamingText, activity }) {
+export function AssistantBubble({ item, conversation, conversationId, saved, streamingText, activity }) {
   const text = item ? item.text + (streamingText || '') : streamingText || ''
   const activities = item?.activities ?? []
   return (
@@ -75,7 +75,8 @@ export function AssistantBubble({ item, conversationId, saved, streamingText, ac
         </p>
       )}
       {(item?.cards ?? []).map(c => (
-        <ProposalCard key={c.id} card={c} conversationId={conversationId} saved={saved?.has(c.id)} />
+        <ProposalCard key={c.id} card={c} conversation={conversation} conversationId={conversationId}
+          saved={saved?.get(c.id)} />
       ))}
       {item?.sources?.length > 0 && (
         <div className="border-t border-slate-100 pt-2">

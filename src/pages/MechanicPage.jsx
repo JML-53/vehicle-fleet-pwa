@@ -4,8 +4,10 @@
  * the new id without remounting while the answer streams)
  *
  * "Ask" buttons elsewhere open /mechanic with location.state
- * { vehicleId, prompt, entry }: the vehicle is preselected and the question
- * pre-typed, but nothing is sent until the user taps Send.
+ * { vehicleId, prompt, entry, intent, guideRunId }: the vehicle is preselected
+ * and the question pre-typed, but nothing is sent until the user taps Send.
+ * intent 'guide' (1b) makes that send a guide request (high effort); "Ask about
+ * this step" reopens the job's chat with /mechanic/:id and a pre-typed prompt.
  *
  * Conversations are shared per vehicle ("Visible to the family"); the author
  * or an admin can delete one. Specs and notes saved from it stay.
@@ -14,7 +16,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow, parseISO } from 'date-fns'
-import { ArrowLeft, Camera, Send, X, Trash2, Plus, Loader2, MessagesSquare } from 'lucide-react'
+import { ArrowLeft, Camera, Send, X, Trash2, Plus, Loader2, MessagesSquare, BookOpen } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useProfiles } from '@/lib/changeLog'
@@ -41,11 +43,12 @@ export default function MechanicPage() {
   const { data: people = {} }   = useProfiles()
   const { data: vehicles = [] } = useVehicleChoices()
   const { data: conv }          = useConversation(conversationId)
-  const { data: saved }         = useSavedCards(conversationId)
 
   const [vehicleId, setVehicleId] = useState(location.state?.vehicleId || '')
   const [entry, setEntry]         = useState(location.state?.entry || null)
   const [draft, setDraft]         = useState(location.state?.prompt || '')
+  const [intent, setIntent]       = useState(location.state?.intent || null)   // applies to the next send only
+  const [guideRunId, setGuideRunId] = useState(location.state?.guideRunId || null)
   const [photos, setPhotos]       = useState([])     // [{ path, media_type, url }]
   const [uploading, setUploading] = useState(false)
   const [live, setLive]           = useState(null)   // turn in progress: { messages, text, activity, pending }
@@ -55,12 +58,20 @@ export default function MechanicPage() {
   const bottomRef = useRef(null)
   const abortRef  = useRef(null)
 
-  // A new "Ask" (or New chat) while this page is open: start over from its state
+  // A new "Ask" (or New chat) while this page is open: start over from its state.
+  // Reopening an existing chat ("Ask about this step") only pre-types the question.
   useEffect(() => {
-    if (conversationId) return
-    setVehicleId(location.state?.vehicleId || '')
-    setEntry(location.state?.entry || null)
-    setDraft(location.state?.prompt || '')
+    const st = location.state || {}
+    if (conversationId) {
+      if (st.prompt) setDraft(st.prompt)
+      if (st.intent) setIntent(st.intent)
+      return
+    }
+    setVehicleId(st.vehicleId || '')
+    setEntry(st.entry || null)
+    setDraft(st.prompt || '')
+    setIntent(st.intent || null)
+    setGuideRunId(st.guideRunId || null)
     setPhotos([]); setNotice(null); setError(null)
   }, [location.key]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -72,6 +83,8 @@ export default function MechanicPage() {
   const items     = toChatItems(live ? [...persisted, ...live.messages.filter(m => m.seq > lastSeq)] : persisted)
   const lastItem  = items[items.length - 1]
   const streamInLast = live && lastItem?.kind === 'assistant'
+  const guideCardIds = items.flatMap(it => (it.cards ?? []).filter(c => c.name === 'propose_guide').map(c => c.id))
+  const { data: saved } = useSavedCards(conversationId, guideCardIds)
 
   useEffect(() => {
     const nearBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - 240
@@ -95,13 +108,14 @@ export default function MechanicPage() {
     }
   }
 
-  async function send() {
-    const text = draft.trim()
+  async function send(override) {
+    const text = (override?.text ?? draft).trim()
+    const sendIntent = override?.intent ?? intent
     if ((!text && !photos.length) || live || uploading) return
     const images = photos.map(({ path, media_type }) => ({ path, media_type }))
     setError(null); setNotice(null)
     setLive({ messages: [], text: '', activity: null, pending: { text, photos: photos.length } })
-    setDraft(''); setPhotos([])
+    setDraft(''); setPhotos([]); setIntent(null)
     window.scrollTo({ top: document.body.scrollHeight })
 
     let convId = conversationId
@@ -109,8 +123,8 @@ export default function MechanicPage() {
     try {
       await sendToMechanic(
         convId
-          ? { conversationId: convId, message: text, images }
-          : { vehicleId: vehicleId || null, message: text, images, entry },
+          ? { conversationId: convId, message: text, images, intent: sendIntent }
+          : { vehicleId: vehicleId || null, message: text, images, entry, intent: sendIntent, guideRunId },
         ev => {
           if (ev.type === 'start' && !convId) {
             convId = ev.conversationId
@@ -132,11 +146,21 @@ export default function MechanicPage() {
       )
     } catch (err) {
       if (err.name !== 'AbortError') setError(err.message)
-      if (!convId) setDraft(text)   // nothing was saved: give the question back
+      if (!convId) { setDraft(text); setIntent(sendIntent) }   // nothing was saved: give the question back
     } finally {
       if (convId) await qc.invalidateQueries({ queryKey: ['ai_conversation', convId] })
       qc.invalidateQueries({ queryKey: ['ai_conversations'] })
       setLive(null)
+    }
+  }
+
+  // In a chat that already covered the job: ask for the guide now. In a new chat: say what job first.
+  function makeGuide() {
+    if (persisted.length) {
+      send({ text: 'Please turn this into a saved guide.', intent: 'guide' })
+    } else {
+      setDraft(d => d || 'Make a guide for: ')
+      setIntent('guide')
     }
   }
 
@@ -208,7 +232,7 @@ export default function MechanicPage() {
         {items.map(it => it.kind === 'user'
           ? <UserBubble key={it.key} item={it}
               authorName={it.author && it.author !== user?.id ? people[it.author]?.display_name : null} />
-          : <AssistantBubble key={it.key} item={it} conversationId={conversationId} saved={saved}
+          : <AssistantBubble key={it.key} item={it} conversation={conv} conversationId={conversationId} saved={saved}
               streamingText={streamInLast && it === lastItem ? live.text : ''}
               activity={streamInLast && it === lastItem ? live.activity : null} />
         )}
@@ -227,7 +251,7 @@ export default function MechanicPage() {
         {notice && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{notice}</p>}
         {error && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
         {/* Room for the fixed composer; scrolling this into view shows the last message above it */}
-        <div ref={bottomRef} className="h-28" aria-hidden="true" />
+        <div ref={bottomRef} className="h-36" aria-hidden="true" />
       </div>
 
       {/* Composer — pinned just above the bottom nav on phones, beside the sidebar on desktop.
@@ -236,6 +260,23 @@ export default function MechanicPage() {
       <div className="fixed z-20 inset-x-0 lg:left-56 bottom-[calc(3.25rem+env(safe-area-inset-bottom,0px))] lg:bottom-0
                       bg-slate-50/95 backdrop-blur border-t border-slate-200 px-4 py-3">
         <div className="max-w-3xl mx-auto space-y-2">
+          {/* 1b: guide requests run at high effort; the chip shows the next send is one */}
+          {(conversationId ? conv?.vehicle_id : vehicleId) && !busy && (
+            <div className="flex flex-wrap items-center gap-2">
+              {intent === 'guide' ? (
+                <span className="inline-flex items-center gap-1 text-xs font-medium bg-primary-50 text-primary-800 rounded-full pl-2.5 pr-1 py-1">
+                  <BookOpen size={12} /> Guide request — the mechanic takes extra care
+                  <button type="button" onClick={() => setIntent(null)} aria-label="Not a guide request"
+                    className="p-0.5 rounded-full hover:bg-primary-100"><X size={11} /></button>
+                </span>
+              ) : (
+                <button type="button" onClick={makeGuide}
+                  className="inline-flex items-center gap-1 text-xs font-medium border border-slate-300 bg-white text-slate-700 hover:text-primary-700 hover:border-primary-500 rounded-full px-2.5 py-1">
+                  <BookOpen size={12} /> Make a guide
+                </button>
+              )}
+            </div>
+          )}
           {photos.length > 0 && (
             <div className="flex gap-2">
               {photos.map(p => (
@@ -260,7 +301,7 @@ export default function MechanicPage() {
               placeholder={conversationId ? 'Reply…' : 'Ask the mechanic…'} aria-label="Message"
               style={{ fieldSizing: 'content' }}
               className="field-textarea flex-1 resize-none min-h-[2.5rem] max-h-40 py-2" />
-            <button type="button" onClick={send}
+            <button type="button" onClick={() => send()}
               disabled={busy || uploading || (!draft.trim() && !photos.length)}
               aria-label="Send" title="Send"
               className="shrink-0 w-10 h-10 inline-flex items-center justify-center rounded-lg bg-primary-700 hover:bg-primary-800 text-white disabled:opacity-40">

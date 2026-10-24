@@ -9,7 +9,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { format, parseISO } from 'date-fns'
-import { Wrench, User, CheckCircle2, CircleDashed, Circle, MoreHorizontal, Hourglass, CalendarDays } from 'lucide-react'
+import { Wrench, User, CheckCircle2, CircleDashed, Circle, MoreHorizontal, Hourglass, CalendarDays, BookOpen } from 'lucide-react'
 import { PRIORITY_META, STATUS_META, CLOSED, resolvingLink, dueInfo, waitingInfo, plannedSession } from '@/lib/pendingWork'
 import { sessionLabel } from '@/lib/workSessions'
 import SourceChips from '@/components/SourceChips'
@@ -63,7 +63,7 @@ export default function PendingCard({ item, people = {}, vehicleName, onDone, on
       )}
 
       {/* One labelled row per kind of detail; a row only shows when it has something */}
-      {(item.assigned_shop || assignee || item.source_links?.length || session || waits.length > 0) && (
+      {(item.assigned_shop || assignee || item.source_links?.length || session || waits.length > 0 || item.guide_id) && (
         <dl className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-2 gap-y-1.5 mb-2 text-xs">
           {(item.assigned_shop || assignee) && (
             <CardRow label="Who">
@@ -81,6 +81,14 @@ export default function PendingCard({ item, people = {}, vehicleName, onDone, on
           )}
           {item.source_links?.length > 0 && (
             <CardRow label="Source"><SourceChips item={item} /></CardRow>
+          )}
+          {item.guide_id && (
+            <CardRow label="Guide">
+              <Link to={`/guides/${item.guide_id}`} onClick={e => e.stopPropagation()} title="Open the guide for this job"
+                className="inline-flex items-center gap-1 font-semibold rounded-full px-2 py-0.5 bg-blue-100 text-blue-800 hover:underline">
+                <BookOpen size={11} />Open guide
+              </Link>
+            </CardRow>
           )}
           {session && (
             <CardRow label="Session">
@@ -182,6 +190,21 @@ export default function PendingCard({ item, people = {}, vehicleName, onDone, on
                         className="block w-full text-left px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50 border-t border-slate-100">
                         Ask the mechanic about this…
                       </button>
+                      {!item.guide_id && (
+                        <button type="button" role="menuitem"
+                          onClick={() => {
+                            setMenu(false)
+                            askMechanic(navigate, {
+                              vehicleId: item.vehicle_id,
+                              intent: 'guide',
+                              prompt: `Make a guide for this job: ${item.title}${item.description ? `. ${item.description}` : ''}`,
+                              entry: { kind: 'pending item', id: item.id, label: item.title },
+                            })
+                          }}
+                          className="block w-full text-left px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50">
+                          Make a guide for this job…
+                        </button>
+                      )}
                       <button type="button" role="menuitem" onClick={() => { setMenu(false); open() }}
                         className="block w-full text-left px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50 border-t border-slate-100">
                         Edit item

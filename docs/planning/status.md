@@ -25,7 +25,7 @@ Replaces `roadmap-task-clusters-0920.md` (kept for history). The live roadmap in
 
 | Item | Status | Next step |
 |---|---|---|
-| **29** AI Expert Mechanic + AI Development Advisor | ready_for_review · high | **Phase 1a built and live-tested 10/24** (chat, save cards, spec trust, AI usage page). Joe: test on the phone, create the mechanic's API key ($50 limit). **1b plan** (guides + paid voice) in `docs/planning/item-29-phase-1b.md`: Joe reviews, 7 open decisions |
+| **29** AI Expert Mechanic + AI Development Advisor | ready_for_review · high | **Phase 1a built and live-tested 10/24** (chat, save cards, spec trust, AI usage page). Joe: test on the phone, create the mechanic's API key ($50 limit). **1b guides half built and live-tested 10/24** (all 7 recommended options; plan in `docs/planning/item-29-phase-1b.md`). Next: voice noise test (OpenAI key set), then voice, Files API, Continue button |
 | 10 Admin interface — enum half | partial · medium | Read path exists (`enum_values`, `EDITABLE_ENUMS`). Needs admin write RPC (`ALTER TYPE … ADD/RENAME VALUE`) and the "can't drop an enum value" decision (lookup table vs hidden list) |
 | 2 Vehicle profile photo | new · low | Fill-in work |
 | B-2 Modifications from service_records | new · low | Reuse 9.3's "one event, one record" approach |

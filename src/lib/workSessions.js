@@ -29,7 +29,7 @@ export const SESSION_STATUS_META = {
 
 const SESSION_SELECT = `*, shop:shops(id, name, is_self),
   items:work_session_items(id, position, outcome, outcome_note, service_record_id, created_at,
-    pending_work(id, title, status, priority, vehicle_id, due_date, assigned_to, description, vehicles(name))),
+    pending_work(id, title, status, priority, vehicle_id, due_date, assigned_to, description, guide_id, vehicles(name))),
   visits:service_visits(id, vehicle_id, visit_date, vehicles(name))`
 
 /**

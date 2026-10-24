@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
-import { ArrowLeft, Plus, Trash2, Pencil, ClipboardCheck, Ban, Wrench, User, CalendarDays } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, Pencil, ClipboardCheck, Ban, Wrench, User, CalendarDays, BookOpen } from 'lucide-react'
 import { useProfiles } from '@/lib/changeLog'
 import { PRIORITY_META, CLOSED, dueInfo } from '@/lib/pendingWork'
 import {
@@ -119,6 +119,11 @@ export default function SessionDetail() {
                           {!out && pr && <span className={pr.badge}>{pr.label}</span>}
                           {due && <span className={due.badge}>{due.label}</span>}
                           {planned && CLOSED.includes(p.status) && <span className="badge-green">Already {p.status}</span>}
+                          {/* Item 29: the job's guide, one tap away on the day */}
+                          {p.guide_id && (
+                            <Link to={`/guides/${p.guide_id}`}
+                              className="inline-flex items-center gap-1 badge-blue hover:underline"><BookOpen size={10} /> Open guide</Link>
+                          )}
                         </div>
                         {si.outcome_note && <p className="text-xs text-slate-500 mt-1">{si.outcome_note}</p>}
                       </div>

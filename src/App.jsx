@@ -33,6 +33,8 @@ import AdminUsersPage from '@/pages/AdminUsersPage'
 import TireComparePage from '@/pages/TireComparePage'
 import MechanicPage from '@/pages/MechanicPage'
 import AiUsagePage from '@/pages/AiUsagePage'
+import GuidePage from '@/pages/GuidePage'
+import GuideRunPage from '@/pages/GuideRunPage'
 import RequireAdmin from '@/components/RequireAdmin'
 
 function RequireAuth({ children }) {
@@ -106,6 +108,8 @@ export default function App() {
         <Route path="changes"                    element={<ChangesPage />} />
         <Route path="tools/tires"                element={<TireComparePage />} />
         <Route path="mechanic/:conversationId?"  element={<MechanicPage />} />
+        <Route path="guides/:guideId"            element={<GuidePage />} />
+        <Route path="guides/:guideId/run/:runId" element={<GuideRunPage />} />
         <Route path="admin/users"                element={<RequireAdmin><AdminUsersPage /></RequireAdmin>} />
         <Route path="admin/ai-usage"             element={<RequireAdmin><AiUsagePage /></RequireAdmin>} />
       </Route>

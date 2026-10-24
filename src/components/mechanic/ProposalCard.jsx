@@ -6,6 +6,7 @@
  *   propose_note         → editable note, saved to vehicle_notes
  *   propose_pending_work → opens the existing Add Pending Work form pre-filled
  *                          ("open-in-form": the form does the saving)
+ *   propose_guide        → 1b: a new guide, or a new version of an existing one
  *
  * Saves run as the signed-in user, so RLS and the change log apply. The card's
  * tool_use id goes in source_tool_use_id (unique), so a card saves only once.
@@ -13,20 +14,22 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { Ruler, StickyNote, ClipboardPlus, CheckCircle2, ShieldAlert, ExternalLink } from 'lucide-react'
+import { Ruler, StickyNote, ClipboardPlus, CheckCircle2, ShieldAlert, ExternalLink, BookOpen } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { SPEC_SOURCE_LABEL, hostname, useVehicleChoices } from '@/lib/mechanic'
 import { PRIORITY_META } from '@/lib/pendingWork'
+import { DIFFICULTY_META, saveGuideFromCard, invalidateGuides } from '@/lib/guides'
 
 const NOTE_CATEGORIES = ['observation', 'warning', 'tip', 'history', 'quirk', 'other']
 const today = () => new Date().toISOString().slice(0, 10)
 
-export default function ProposalCard({ card, conversationId, saved }) {
+export default function ProposalCard({ card, conversation, conversationId, saved }) {
   if (card.refused) return null   // the function rejected it; the answer explains why
   if (card.name === 'propose_spec')         return <SpecCard  card={card} conversationId={conversationId} saved={saved} />
   if (card.name === 'propose_note')         return <NoteCard  card={card} conversationId={conversationId} saved={saved} />
   if (card.name === 'propose_pending_work') return <WorkCard  card={card} />
+  if (card.name === 'propose_guide')        return <GuideCard card={card} conversation={conversation} conversationId={conversationId} savedGuideId={saved} />
   return null
 }
 
@@ -149,6 +152,56 @@ function NoteCard({ card, conversationId, saved }) {
         })}>
         {state.busy ? 'Saving…' : 'Save note'}
       </button>
+    </Shell>
+  )
+}
+
+function GuideCard({ card, conversation, conversationId, savedGuideId }) {
+  const i = card.input
+  const qc = useQueryClient()
+  const [showSteps, setShowSteps] = useState(false)
+  const [state, setState] = useState({ busy: false, error: null })
+  const steps = i.steps ?? []
+  const diff = DIFFICULTY_META[i.difficulty] ?? { label: i.difficulty, badge: 'badge-slate' }
+  const isUpdate = !!i.guide_id
+
+  async function save() {
+    setState({ busy: true, error: null })
+    try {
+      const id = await saveGuideFromCard(card, { conversationId, entry: conversation?.entry })
+      invalidateGuides(qc, i.vehicle_id, id)
+      qc.invalidateQueries({ queryKey: ['pending_work_item'] })
+      setState({ busy: false, error: null })
+    } catch (err) {
+      setState({ busy: false, error: err.message })
+    }
+  }
+
+  return (
+    <Shell vehicleId={i.vehicle_id} Icon={BookOpen} title={savedGuideId ? 'Guide' : isUpdate ? 'Save the updated guide?' : 'Save this guide?'}>
+      <p className="text-sm font-semibold text-slate-800">{i.title}</p>
+      <p className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+        <span className={diff.badge}>{diff.label}</span>
+        {i.time_estimate && <span>{i.time_estimate}</span>}
+        <span>{steps.length} steps · {(i.tools ?? []).length} tools · {(i.parts ?? []).length} parts</span>
+      </p>
+      {i.summary && <p className="text-xs text-slate-600">{i.summary}</p>}
+      <button type="button" onClick={() => setShowSteps(s => !s)} className="text-xs text-primary-700 underline">
+        {showSteps ? 'Hide steps' : 'Show steps'}
+      </button>
+      {showSteps && (
+        <ol className="list-decimal pl-5 text-xs text-slate-700 space-y-0.5">
+          {steps.map((s, n) => <li key={n}>{s.title}{s.torque ? <strong> · {s.torque}</strong> : ''}</li>)}
+        </ol>
+      )}
+      {state.error && <p className="text-xs text-red-600">{state.error}</p>}
+      {savedGuideId
+        ? <p className="flex items-center gap-1.5 text-sm text-green-700">
+            <CheckCircle2 size={14} /> Saved · <Link to={`/guides/${savedGuideId}`} className="underline">Open guide</Link>
+          </p>
+        : <button type="button" className="btn-primary text-sm py-1.5" disabled={state.busy} onClick={save}>
+            {state.busy ? 'Saving…' : isUpdate ? 'Save as new version' : 'Save guide'}
+          </button>}
     </Shell>
   )
 }
