@@ -56,7 +56,8 @@ export default function AiUsagePage() {
   const pct     = Math.min(100, (total / MONTHLY_CAP_USD) * 100)
   const inputs  = sum(rows, 'input_tokens') + sum(rows, 'cache_write_tokens') + sum(rows, 'cache_read_tokens')
   const cached  = inputs ? Math.round((sum(rows, 'cache_read_tokens') / inputs) * 100) : 0
-  const shared  = rows.some(r => r.key_source === 'shared')
+  // Only the latest call says which key is in use now (rows are newest first)
+  const shared  = rows[0]?.key_source === 'shared'
   const byPerson = groupBy(rows, 'user_id')
   const byChat   = groupBy(rows.filter(r => r.conversation_id), 'conversation_id').slice(0, 10)
 
