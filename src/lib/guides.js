@@ -228,6 +228,55 @@ export async function verifyGuideSpecs(guideId, userId) {
   if (error) throw error
 }
 
+// ── Reading a guide aloud ────────────────────────────────────────────────────
+
+export const GUIDE_SECTIONS = [
+  ['overview', 'Overview'], ['tools', 'Tools'], ['parts', 'Parts & supplies'], ['safety', 'Safety'],
+  ['steps', 'Steps'], ['mistakes', 'Common mistakes'], ['tips', 'Tips'], ['after', 'After the job'], ['specs', 'Specs'],
+]
+export const SECTION_LABEL = Object.fromEntries(GUIDE_SECTIONS)
+
+/** What's read aloud for one step (check-off mode reads it on arriving at the step) */
+export function stepSpeech(step, i, n) {
+  if (!step) return "That's every step. Check the after-the-job list, then tap Finish job."
+  return [
+    `Step ${i + 1} of ${n}. ${step.title}.`,
+    step.detail,
+    step.size && `Use a ${step.size}.`,
+    step.torque && `${step.torque}.`,
+    step.caution && `Caution: ${step.caution}`,
+    step.tip && `Tip: ${step.tip}`,
+  ].filter(Boolean).join(' ')
+}
+
+/**
+ * A guide as an ordered list of spoken pieces, for play / pause / skip and
+ * jumping between sections: [{ key, section, text, step? }]. Skipping moves
+ * one piece (one step, one tool, one tip…); the first piece of a section says
+ * the section's name.
+ */
+export function guideSegments(guide) {
+  const b = guide?.body ?? {}
+  const out = []
+  const add = (section, items, toText) => (items ?? []).forEach((it, n) => {
+    const text = toText(it, n)
+    if (text) out.push({ key: `${section}-${n}`, section, text: n === 0 && section !== 'steps' ? `${SECTION_LABEL[section]}. ${text}` : text })
+  })
+  const diff = DIFFICULTY_META[b.difficulty]?.label
+  add('overview', [1], () => [`${guide.title}.`, diff && `${diff}.`, b.time_estimate && `About ${b.time_estimate}.`, b.summary].filter(Boolean).join(' '))
+  add('tools', b.tools, t => `${t.name}${t.size ? `, ${t.size}` : ''}.${t.note ? ` ${t.note}.` : ''}`)
+  add('parts', [...(b.parts ?? []), ...((b.supplies ?? []).length ? [{ supplies: b.supplies }] : [])], p => p.supplies
+    ? `Shop supplies: ${p.supplies.map(s => (s.quantity ? `${s.name}, ${s.quantity}` : s.name)).join('; ')}.`
+    : `${[p.quantity, p.brand, p.name].filter(Boolean).join(' ')}${p.part_number ? `, part number ${p.part_number}` : ''}.${p.note ? ` ${p.note}.` : ''}`)
+  add('safety', b.safety, s => s)
+  ;(b.steps ?? []).forEach((s, i, all) => out.push({ key: `steps-${i}`, section: 'steps', step: i, text: stepSpeech(s, i, all.length) }))
+  add('mistakes', b.mistakes, s => s)
+  add('tips', b.tips, s => s)
+  add('after', b.after, s => s)
+  add('specs', b.specs, s => `${s.name}: ${s.value}${s.units ? ` ${s.units}` : ''}.`)
+  return out
+}
+
 /** The step a run should open on: the first one not yet done */
 export function firstOpenStep(run, stepCount) {
   const done = new Set((run?.guide_run_steps ?? []).filter(s => s.done_at).map(s => s.step_index))

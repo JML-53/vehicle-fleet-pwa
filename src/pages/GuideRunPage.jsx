@@ -30,7 +30,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useStoredState } from '@/lib/useStoredState'
 import { usePendingItem, fromPendingState } from '@/lib/pendingWork'
 import { askMechanic, sendToMechanic } from '@/lib/mechanic'
-import { useVoice, matchCommand, speakAll, unlockAudio, createSentenceSplitter } from '@/lib/voice'
+import { useVoice, matchCommand, unlockAudio, createSentenceSplitter } from '@/lib/voice'
 import TalkButton from '@/components/voice/TalkButton'
 import VoicePicker from '@/components/voice/VoicePicker'
 import {
@@ -38,6 +38,7 @@ import {
   verifyGuideSpecs, invalidateGuides,
 } from '@/lib/guides'
 import { StepBody, BeforeYouStart } from '@/components/guides/GuideSections'
+import GuidePlayer from '@/components/guides/GuidePlayer'
 
 /** The newest chat tied to this run, so "Ask about this step" continues it */
 function useRunConversation(runId) {
@@ -51,19 +52,6 @@ function useRunConversation(runId) {
     },
     enabled: !!runId,
   })
-}
-
-/** What's read aloud on arriving at a step (or past the last one) */
-function stepSpeech(step, i, n) {
-  if (!step) return "That's every step. Check the after-the-job list, then tap Finish job."
-  return [
-    `Step ${i + 1} of ${n}. ${step.title}.`,
-    step.detail,
-    step.size && `Use a ${step.size}.`,
-    step.torque && `${step.torque}.`,
-    step.caution && `Caution: ${step.caution}`,
-    step.tip && `Tip: ${step.tip}`,
-  ].filter(Boolean).join(' ')
 }
 
 /** Keep the phone's screen on while a job is open (re-acquired after switching apps) */
@@ -111,20 +99,12 @@ export default function GuideRunPage() {
   const [voiceOn, setVoiceOn] = useStoredState('guide_voice_mode', false)
   const voice = useVoice()
   const [answer, setAnswer] = useState(null)       // { question, text, busy, error } from a spoken question
-  const spokenIdx = useRef(null)
+  const player = useRef(null)                      // GuidePlayer: reads the step on arrival; replay() for "repeat"
 
   // Open on the first step not yet done (once, when the run loads)
   useEffect(() => {
     if (idx === null && run && g) setIdx(firstOpenStep(run, steps.length))
   }, [run, g]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Voice: read each step once as you arrive at it
-  useEffect(() => {
-    if (!voiceOn || idx === null || !g || run?.status !== 'active' || spokenIdx.current === idx) return
-    spokenIdx.current = idx
-    voice.stopSpeaking()
-    speakAll(voice.speaker, stepSpeech(steps[idx], idx, steps.length))
-  }, [idx, voiceOn, g, run?.status]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!g || !run || idx === null) return <div className="p-4 text-slate-400 text-sm animate-pulse">Loading job…</div>
 
@@ -167,8 +147,7 @@ export default function GuideRunPage() {
       voice.stopSpeaking()
       setVoiceOn(false)
     } else {
-      unlockAudio()                 // this tap lets the phone play the steps
-      spokenIdx.current = null      // read the current step now
+      unlockAudio()                 // this tap lets the phone play the steps; the player reads the current one
       setVoiceOn(true)
     }
   }
@@ -183,7 +162,7 @@ export default function GuideRunPage() {
         return
       case 'back':   setIdx(i => Math.max(0, i - 1)); return
       case 'skip':   setIdx(i => Math.min(i + 1, steps.length)); return
-      case 'repeat': voice.stopSpeaking(); speakAll(voice.speaker, stepSpeech(step, idx, steps.length)); return
+      case 'repeat': player.current?.replay(); return
       case 'where':  voice.speak(`You're on step ${Math.min(idx + 1, steps.length)} of ${steps.length}, with ${doneCount} done.`); return
       default:       askInline(text)
     }
@@ -268,6 +247,8 @@ export default function GuideRunPage() {
         {/* Voice: hold to talk for commands or questions; spoken answers show here too */}
         {voiceOn && isActive && !finished && (
           <div className="card space-y-3">
+            <GuidePlayer ref={player} guide={g} voice={voice} mode="job"
+              stepIndex={idx} onStep={i => { setIdx(i); setNoteOpen(false) }} autoPlay={voiceOn} />
             <TalkButton voice={voice} onTranscript={onVoice} disabled={busy || answer?.busy}
               label="Hold to talk" />
             <p className="text-xs text-slate-500 text-center">Say “done”, “back”, “repeat”, “where am I”, or ask a question.</p>

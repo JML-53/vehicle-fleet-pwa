@@ -11,7 +11,8 @@
  *   transcribe { audio, mime, duration }  a short clip (base64) → { text }; text is ""
  *                                when nothing usable was heard (never act on it)
  *   speak { text, voice?, rate? }  one sentence → MP3 bytes (audio/mpeg)
- *   voices                       → { voices: [{ name, label, gender }] } en-US Chirp 3 HD
+ *   voices                       → { voices: [{ name, locale, label, gender }] } Chirp 3 HD
+ *                                in en-US / en-GB / en-AU / en-IN (en-IE, en-NZ when Google adds them)
  *   transcribe_test { testId, only? }  admin: run one recorded test phrase (voice_tests
  *                                row + its audio in Storage) through each candidate
  *                                transcriber in parallel; saves the results on the
@@ -55,6 +56,7 @@ const LISTEN_MODEL      = "gpt-transcribe"
 const MAX_CLIP_BYTES    = 5 * 1024 * 1024     // ~5 minutes of Opus; push-to-talk clips are seconds
 const GOOGLE_TTS        = "https://texttospeech.googleapis.com/v1"
 const DEFAULT_VOICE     = "en-US-Chirp3-HD-Charon"
+const LOCALES           = ["en-US", "en-GB", "en-AU", "en-IN", "en-IE", "en-NZ"]   // the English accents the family can pick
 const MAX_SPEAK_CHARS   = 1500
 const SPEAK_USD_PER_CHAR = 30 / 1_000_000      // list price; Google's first 1M characters a month are free
 
@@ -73,26 +75,30 @@ serve(async (req) => {
       if (!googleKey) return fail("Speaking isn't set up yet (GOOGLE_TTS_API_KEY).")
 
       if (body.action === "voices") {
-        const res = await fetch(`${GOOGLE_TTS}/voices?languageCode=en-US`, { headers: { "X-Goog-Api-Key": googleKey } })
+        const res = await fetch(`${GOOGLE_TTS}/voices`, { headers: { "X-Goog-Api-Key": googleKey } })
         const data: any = await res.json().catch(() => ({}))
         if (!res.ok) return fail(`Google: ${data?.error?.message ?? res.status}`)
+        // Chirp 3 HD voices in the family's English locales. Google offers en-US, en-GB,
+        // en-AU and en-IN (10/25); en-IE and en-NZ have no voices yet but are asked for,
+        // so they appear if Google adds them.
         const voices = (data.voices ?? [])
-          .filter((v: any) => v.name?.startsWith("en-US-Chirp3-HD-"))
-          .map((v: any) => ({ name: v.name, label: v.name.replace("en-US-Chirp3-HD-", ""), gender: v.ssmlGender }))
-          .sort((a: any, b: any) => a.label.localeCompare(b.label))
+          .filter((v: any) => LOCALES.includes(v.languageCodes?.[0]) && v.name.includes("-Chirp3-HD-"))
+          .map((v: any) => ({ name: v.name, locale: v.languageCodes[0], label: v.name.split("-").pop(), gender: v.ssmlGender }))
+          .sort((a: any, b: any) => a.locale.localeCompare(b.locale) || a.label.localeCompare(b.label))
         return json({ success: true, voices })
       }
 
       const text = String(body.text ?? "").trim().slice(0, MAX_SPEAK_CHARS)
       if (!text) return fail("Nothing to say")
-      const voice = /^en-US-Chirp3-HD-[A-Za-z]+$/.test(body.voice ?? "") ? body.voice : DEFAULT_VOICE
+      const ok = /^en-[A-Z]{2}-Chirp3-HD-[A-Za-z]+$/.test(body.voice ?? "") && LOCALES.includes(body.voice.slice(0, 5))
+      const voice = ok ? body.voice : DEFAULT_VOICE
       const rate  = Math.min(1.5, Math.max(0.75, Number(body.rate) || 1))
       const res = await fetch(`${GOOGLE_TTS}/text:synthesize`, {
         method: "POST",
         headers: { "X-Goog-Api-Key": googleKey, "Content-Type": "application/json" },
         body: JSON.stringify({
           input: { text },
-          voice: { languageCode: "en-US", name: voice },
+          voice: { languageCode: voice.slice(0, 5), name: voice },   // e.g. en-GB from en-GB-Chirp3-HD-Charon
           audioConfig: { audioEncoding: "MP3", speakingRate: rate },
         }),
       })

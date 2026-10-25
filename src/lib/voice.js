@@ -16,6 +16,19 @@ import { useStoredState } from '@/lib/useStoredState'
 const FN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/voice`
 export const DEFAULT_VOICE = 'en-US-Chirp3-HD-Charon'
 
+/** English accents the family can pick. Google offers the first four; IE and NZ show when it adds them. */
+export const VOICE_COUNTRIES = {
+  'en-US': 'United States',
+  'en-GB': 'United Kingdom',
+  'en-AU': 'Australia',
+  'en-IN': 'India',
+  'en-IE': 'Ireland',
+  'en-NZ': 'New Zealand',
+}
+const COUNTRY_SHORT = { 'en-US': 'US', 'en-GB': 'UK', 'en-AU': 'AU', 'en-IN': 'IN', 'en-IE': 'IE', 'en-NZ': 'NZ' }
+/** "en-GB-Chirp3-HD-Charon" → "Charon · UK" */
+export const voiceLabel = name => `${name.split('-').pop()} · ${COUNTRY_SHORT[name.slice(0, 5)] ?? name.slice(0, 5)}`
+
 async function callVoice(body) {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session) throw new Error('Not signed in')
@@ -110,57 +123,115 @@ async function fetchSpeech(text, voice, rate) {
   return URL.createObjectURL(await res.blob())
 }
 
-function playUrl(url) {
-  return new Promise((resolve, reject) => {
-    const p = getPlayer()
-    p.onpause = null
-    p.onended = null
-    p.onerror = () => reject(new Error("Couldn't play the answer"))
-    p.src = url
-    // Listen for the end only once this clip is playing: swapping src can fire a
-    // stray "pause" from the previous clip. "pause" also covers stop().
-    p.play()
-      .then(() => { p.onpause = () => resolve(); p.onended = () => resolve() })
-      .catch(reject)
-  })
-}
-
 /**
  * A queue of sentences to say. Each sentence's audio is requested as soon as
  * it's queued (so the next one is ready when the current one ends) and they
- * play in order. stop() empties the queue and cuts the current sentence.
+ * play in order.
+ *   speak(text)  queue one piece as is
+ *   say(text)    split into sentences and queue them; resolves 'done' when the
+ *                last one has played, or 'cancelled' if stop() came first
+ *   pause() / resume()  hold and continue mid-sentence
+ *   stop()       empty the queue and cut the current sentence
+ * The audio element fires "pause" both when you pause and when a clip ends, so
+ * a user pause is flagged and doesn't count as "this sentence is finished".
  */
 export function createSpeaker({ getVoice, getRate, onState, onError }) {
-  const queue = []
+  let queue = []
+  let current = null                        // the item playing now
   let playing = false
+  let userPaused = false
+  let clipActive = false                    // a clip is mid-play (resume continues it; otherwise it would restart)
+  let resumeWaiters = []
   let generation = 0                        // stop() bumps it so late audio is dropped
+  const untilResumed = () => new Promise(r => resumeWaiters.push(r))
+  const releaseWaiters = () => { resumeWaiters.forEach(r => r()); resumeWaiters = [] }
+
+  function playUrl(url) {
+    return new Promise((resolve, reject) => {
+      const p = getPlayer()
+      const finish = () => { clipActive = false; resolve() }
+      p.onpause = null
+      p.onended = null
+      p.onerror = () => { clipActive = false; reject(new Error("Couldn't play the answer")) }
+      p.src = url
+      // Listen for the end only once this clip is playing: swapping src can fire a
+      // stray "pause" from the previous clip. A pause from stop() also ends it.
+      p.play()
+        .then(() => {
+          clipActive = true
+          p.onpause = () => { if (!userPaused) finish() }
+          p.onended = finish
+        })
+        .catch(err => { clipActive = false; reject(err) })
+    })
+  }
+
   async function playNext(gen) {
     const item = queue.shift()
-    if (!item || gen !== generation) { playing = false; onState?.('idle'); return }
+    if (!item || gen !== generation) { playing = false; current = null; onState?.('idle'); return }
     playing = true
-    onState?.('speaking')
+    current = item
+    if (!userPaused) onState?.('speaking')
+    let outcome = 'done'
     try {
       const url = await item.audio
+      if (userPaused && gen === generation) await untilResumed()   // paused between sentences: wait
       if (gen === generation) await playUrl(url)
       URL.revokeObjectURL(url)
     } catch (err) {
+      outcome = 'error'
       onError?.(err)
     }
+    item.onDone?.(gen === generation ? outcome : 'cancelled')
     playNext(gen)
   }
+
+  function enqueue(text, onDone) {
+    const clean = speechText(text)
+    if (!clean) return false
+    const item = { audio: fetchSpeech(clean, getVoice(), getRate()), onDone }
+    item.audio.catch(() => {})              // reported when it's its turn to play
+    queue.push(item)
+    if (!playing) playNext(generation)
+    return true
+  }
+
   return {
-    speak(text) {
-      const clean = speechText(text)
-      if (!clean) return
-      const item = { audio: fetchSpeech(clean, getVoice(), getRate()) }
-      item.audio.catch(() => {})            // reported when it's its turn to play
-      queue.push(item)
-      if (!playing) playNext(generation)
+    speak(text) { enqueue(text) },
+    say(text) {
+      return new Promise(resolve => {
+        const parts = []
+        const s = createSentenceSplitter(sentence => parts.push(sentence))
+        s.push(text)
+        s.flush()
+        const queued = parts.filter((p, i) => enqueue(p, i === parts.length - 1 ? resolve : undefined))
+        if (!queued.length) resolve('done')
+      })
+    },
+    pause() {
+      if (!playing || userPaused) return
+      userPaused = true
+      if (clipActive) player.pause()
+      onState?.('paused')
+    },
+    resume() {
+      if (!userPaused) return
+      userPaused = false
+      if (clipActive) player.play().catch(err => onError?.(err))
+      releaseWaiters()
+      onState?.('speaking')
     },
     stop() {
+      userPaused = false
+      releaseWaiters()
       generation++
-      queue.length = 0
-      if (player && !player.paused) player.pause()
+      const dropped = queue
+      queue = []
+      dropped.forEach(item => item.onDone?.('cancelled'))
+      if (clipActive && !player.paused) player.pause()
+      else current?.onDone?.('cancelled')   // paused or still fetching: playNext won't report it
+      clipActive = false
+      current = null
       playing = false
       onState?.('idle')
     },
@@ -218,11 +289,9 @@ export function createSentenceSplitter(onSentence) {
   }
 }
 
-/** Say a whole answer (read-aloud button) */
+/** Say a whole answer (read-aloud button); resolves 'done' or 'cancelled' */
 export function speakAll(speaker, text) {
-  const s = createSentenceSplitter(sentence => speaker.speak(sentence))
-  s.push(text)
-  s.flush()
+  return speaker.say(text)
 }
 
 // ── Commands in check-off mode (matched on the phone: instant and free) ──────
@@ -257,7 +326,7 @@ export function useVoiceList(enabled) {
 
 /**
  * Hold-to-talk + speaking for one screen.
- *   state: idle | listening | transcribing | speaking
+ *   state: idle | listening | transcribing | speaking | paused
  *   startListening() on press, stopListening() on release → transcript ("" = nothing heard)
  */
 export function useVoice() {
@@ -308,6 +377,9 @@ export function useVoice() {
     state, error, setError, settings, speaker,
     startListening, stopListening,
     speak: text => speaker.speak(text),
+    say: text => speaker.say(text),          // → 'done' | 'cancelled'
+    pause: () => speaker.pause(),
+    resume: () => speaker.resume(),
     stopSpeaking: () => speaker.stop(),
   }
 }

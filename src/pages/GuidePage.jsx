@@ -19,7 +19,10 @@ import {
   useGuide, useGuideSavedSpecs, DIFFICULTY_META, startOrResumeRun, saveGuideSpecs, invalidateGuides,
 } from '@/lib/guides'
 import { StepBody, BeforeYouStart, BulletSection, GuideSpecList, GuideSources } from '@/components/guides/GuideSections'
+import GuidePlayer from '@/components/guides/GuidePlayer'
+import VoicePicker from '@/components/voice/VoicePicker'
 import DeleteOrRequest from '@/components/DeleteOrRequest'
+import { useVoice } from '@/lib/voice'
 
 export default function GuidePage() {
   const { guideId } = useParams()
@@ -32,6 +35,7 @@ export default function GuidePage() {
   const [forItem, setForItem] = useState(null)   // null = default (the item linked to this guide)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState(null)
+  const voice = useVoice()                       // "Listen to this guide"
 
   if (isLoading) return <div className="p-4 text-slate-400 text-sm animate-pulse">Loading guide…</div>
   if (error || !g) return <div className="p-4 text-red-500 text-sm">Guide not found.</div>
@@ -102,6 +106,17 @@ export default function GuidePage() {
 
       <div className="p-4 max-w-3xl mx-auto space-y-4 pb-10">
         {b.summary && <p className="text-sm text-slate-700">{b.summary}</p>}
+
+        {/* 1b: listen to the whole guide — play / pause / skip, jump between sections */}
+        <div className="card space-y-3">
+          <h2 className="card-header mb-0">Listen to this guide</h2>
+          <GuidePlayer guide={g} voice={voice} mode="listen" />
+          {voice.error && <p className="text-xs text-red-600">{voice.error}</p>}
+          <details className="text-sm">
+            <summary className="cursor-pointer text-xs text-slate-500">Voice settings</summary>
+            <div className="mt-2"><VoicePicker voice={voice} /></div>
+          </details>
+        </div>
 
         {/* Start / resume */}
         <div className="card space-y-3">
