@@ -11,12 +11,16 @@
  *
  * Conversations are shared per vehicle ("Visible to the family"); the author
  * or an admin can delete one. Specs and notes saved from it stay.
+ *
+ * Part C: when the last turn stopped early (time or step limit, length limit,
+ * a dropped connection), a Continue button picks it up. It's read from the
+ * saved messages (continueState), so it's still there after a reload.
  */
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow, parseISO } from 'date-fns'
-import { ArrowLeft, Camera, Send, X, Trash2, Plus, Loader2, MessagesSquare, BookOpen, Volume2, VolumeX, Keyboard, Mic } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Camera, Send, X, Trash2, Plus, Loader2, MessagesSquare, BookOpen, Volume2, VolumeX, Keyboard, Mic } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useProfiles } from '@/lib/changeLog'
@@ -26,6 +30,7 @@ import TalkButton from '@/components/voice/TalkButton'
 import VoicePicker from '@/components/voice/VoicePicker'
 import {
   sendToMechanic, uploadChatPhoto, useConversation, useConversations, useSavedCards, useVehicleChoices, toChatItems,
+  continueState, CONTINUE_WORDS,
 } from '@/lib/mechanic'
 import { UserBubble, AssistantBubble } from '@/components/mechanic/ChatItems'
 
@@ -88,6 +93,7 @@ export default function MechanicPage() {
 
   const persisted = conv?.messages ?? []
   const lastSeq   = persisted.length ? persisted[persisted.length - 1].seq : 0
+  const cont      = !live && conversationId ? continueState(persisted) : null   // Part C: stopped early?
   const items     = toChatItems(live ? [...persisted, ...live.messages.filter(m => m.seq > lastSeq)] : persisted)
   const lastItem  = items[items.length - 1]
   const streamInLast = live && lastItem?.kind === 'assistant'
@@ -119,11 +125,14 @@ export default function MechanicPage() {
   async function send(override) {
     const text = (override?.text ?? draft).trim()
     const sendIntent = override?.intent ?? intent
-    if ((!text && !photos.length) || live || uploading) return
+    // Continue: the button, or "continue" typed or spoken when the turn can simply carry on
+    const resume = !!override?.resume || (cont === 'resume' && !photos.length && CONTINUE_WORDS.test(text))
+    if ((!text && !photos.length && !resume) || live || uploading) return
     const images = photos.map(({ path, media_type }) => ({ path, media_type }))
     setError(null); setNotice(null)
-    setLive({ messages: [], text: '', activity: null, pending: { text, photos: photos.length } })
-    setDraft(''); setPhotos([]); setIntent(null)
+    setLive({ messages: [], text: '', activity: null, pending: resume ? null : { text, photos: photos.length } })
+    if (!override?.resume) setDraft('')                // the button leaves a half-typed question alone
+    if (!resume) { setPhotos([]); setIntent(null) }
     window.scrollTo({ top: document.body.scrollHeight })
 
     let convId = conversationId
@@ -134,7 +143,9 @@ export default function MechanicPage() {
     try {
       await sendToMechanic(
         convId
-          ? { conversationId: convId, message: text, images, intent: sendIntent, voice: asVoice }
+          ? resume
+            ? { conversationId: convId, resume: true }
+            : { conversationId: convId, message: text, images, intent: sendIntent, voice: asVoice }
           : { vehicleId: vehicleId || null, message: text, images, entry, intent: sendIntent, guideRunId, voice: asVoice },
         ev => {
           if (ev.type === 'start' && !convId) {
@@ -301,7 +312,16 @@ export default function MechanicPage() {
           <p className="flex items-center gap-1.5 text-xs text-slate-500 pl-1"><Loader2 size={12} className="animate-spin" /> Working…</p>
         )}
 
-        {notice && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{notice}</p>}
+        {cont ? (
+          <div className="flex items-center justify-between gap-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            <span>{notice || (cont === 'more' ? 'That answer hit its length limit.' : 'The mechanic stopped before finishing.')}</span>
+            <button type="button" disabled={uploading}
+              onClick={() => (cont === 'more' ? send({ text: 'Please continue where you left off.' }) : send({ resume: true }))}
+              className="btn-primary shrink-0 text-xs py-1.5 px-3 inline-flex items-center gap-1">
+              Continue <ArrowRight size={13} />
+            </button>
+          </div>
+        ) : notice && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{notice}</p>}
         {error && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
         {/* Room for the fixed composer; scrolling this into view shows the last message above it */}
         <div ref={bottomRef} className="h-36" aria-hidden="true" />

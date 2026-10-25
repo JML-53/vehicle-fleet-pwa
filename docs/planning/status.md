@@ -1,4 +1,4 @@
-# Project status — 2026-10-13
+# Project status — 2026-10-25
 
 Replaces `roadmap-task-clusters-0920.md` (kept for history). The live roadmap in the app is the source of truth; this file is the plan and the open questions around it.
 
@@ -25,11 +25,12 @@ Replaces `roadmap-task-clusters-0920.md` (kept for history). The live roadmap in
 
 | Item | Status | Next step |
 |---|---|---|
-| **29** AI Expert Mechanic + AI Development Advisor | ready_for_review · high | **Phase 1a built and live-tested 10/24** (chat, save cards, spec trust, AI usage page). Joe: test on the phone, create the mechanic's API key ($50 limit). **1b guides half built and live-tested 10/24** (all 7 recommended options; plan in `docs/planning/item-29-phase-1b.md`). Noise test done 10/25: listening = OpenAI gpt-transcribe + vocabulary + English (100% in noise); speaking = Google Chirp 3 HD (OpenAI TTS shuts down Jan 2027). Next: Joe sets up the Google key; build voice mode (plan doc "Voice mode build plan"), then Files API, Continue button |
+| **29** AI Expert Mechanic | ready_for_review · high | **Built and live-tested 10/24–25:** 1a mechanic chat (save cards, spec trust, AI usage page); 1b guides + check-off mode + Guides menu (plan in `docs/planning/item-29-phase-1b.md`); voice mode (listening = OpenAI gpt-transcribe + vocabulary, 100% in noise; speaking = Google Chirp 3 HD); guide player (play / pause / skip / sections); voices by country and gender; spoken units + per-accent pronunciation dictionary. **Joe's testing complete 10/25**; noise recordings deleted. **Part C built and live-tested 10/25:** manuals via the Files API (`ai_files`, 90-day copies), ~300K-token (~200-page) limit per document, 1-hour prompt cache, Continue button. Next: Joe re-tests Part C and approves. Second persona moved to 29.1. Tip: turn on auto-reload credit in the Anthropic Console (credit ran out 10/25 and took the mechanic and document reader down) |
+| **29.1** AI Development Advisor (split from 29, 10/25) | not_implemented · high | Admin Data health page (SQL checks find problems; AI explains and proposes fix cards) + `/fleet-audit` Claude Code skill (fix scripts for Joe's review, roadmap nominations). First settle which checks come first and whether fix cards wait for item 34 |
 | 10 Admin interface — enum half | partial · medium | Read path exists (`enum_values`, `EDITABLE_ENUMS`). Needs admin write RPC (`ALTER TYPE … ADD/RENAME VALUE`) and the "can't drop an enum value" decision (lookup table vs hidden list) |
 | 2 Vehicle profile photo | new · low | Fill-in work |
 | B-2 Modifications from service_records | new · low | Reuse 9.3's "one event, one record" approach |
-| 20 Multiple feedback entries per item | deferred · low | Joe's design is sound; also give Claude's impl_notes dated entries. Pairs with 29's dev advisor |
+| 20 Multiple feedback entries per item | deferred · low | Joe's design is sound; also give Claude's impl_notes dated entries. Pairs with 29.1 (dev advisor) |
 | 9.1 Link old source documents | deferred · low | 9.5 covers new records; only pre-upload history remains |
 | App-wide page widths | — | Follow-up from 31: wider list/table pages (Pending Work, Changes, Roadmap), forms stay narrow |
 | Cleanup (from 32) | — | Later: drop the compatibility trigger + old `source*` columns once nothing reads them (do on item 34's local copy first) |
@@ -55,7 +56,7 @@ Full write-up, including Joe's four use cases, in item 29's `impl_notes`.
 **Phases:**
 - **1a** mechanic chat: context incl. specs/notes/mods/manuals; web search; photos; Save spec / Save note cards; open-in-form; usage log; caller-verification helper (also fixes `parse-document`).
 - **1b** Guides tab + check-off mode + paid voice.
-- **2** Data health + `/fleet-audit`.
+- **2** Data health + `/fleet-audit` — now its own item, **29.1** (10/25).
 
 **Knowledge base = the mechanic's memory:** existing `known_specs`, `vehicle_notes` and `modifications`, plus a new `procedures` table (Guides). Gap: R2's Sniper EFI isn't in Modifications yet.
 

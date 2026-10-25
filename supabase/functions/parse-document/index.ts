@@ -236,7 +236,8 @@ serve(async (req) => {
     return json({ success: true, data: normalize(JSON.parse(text.text)), model: response.model })
   } catch (err) {
     if (err instanceof Anthropic.APIError) {
-      return fail(`AI service error ${err.status ?? ""}: ${err.message}`)
+      // The SDK keeps the parsed error body; show its message, not the raw JSON
+      return fail(`AI service error ${err.status ?? ""}: ${(err as any).error?.error?.message ?? err.message}`)
     }
     return fail(err instanceof Error ? err.message : String(err))
   }

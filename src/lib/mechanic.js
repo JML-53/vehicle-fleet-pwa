@@ -121,7 +121,7 @@ export function useConversation(id) {
     queryFn: async () => {
       const [conv, msgs] = await Promise.all([
         supabase.from('ai_conversations').select('*, vehicles(id, name)').eq('id', id).single(),
-        supabase.from('ai_messages').select('seq, role, content, author, created_at')
+        supabase.from('ai_messages').select('seq, role, content, author, stop_reason, created_at')
           .eq('conversation_id', id).order('seq'),
       ])
       if (conv.error) throw conv.error
@@ -156,6 +156,25 @@ export function useSavedCards(conversationId, guideCardIds = []) {
     enabled: !!conversationId,
   })
 }
+
+/**
+ * Part C: did the last turn stop before finishing? Read from the saved messages,
+ * so the Continue button survives a reload.
+ *   'resume' — carry on with no new message: an unanswered question, tool results
+ *              with no answer yet, a paused web search, or a tool call cut off mid-run
+ *   'more'   — the answer hit its length limit; ask for the rest
+ *   null     — finished
+ */
+export function continueState(messages = []) {
+  const tail = [...messages].reverse().find(m => m.role !== 'system')
+  if (!tail) return null
+  if (tail.role === 'user' || tail.stop_reason === 'pause_turn' || tail.stop_reason === 'tool_use') return 'resume'
+  if (tail.stop_reason === 'max_tokens') return 'more'
+  return null
+}
+
+/** "continue", typed or spoken */
+export const CONTINUE_WORDS = /^(please )?(continue|keep going|go on|carry on)[.!]?$/i
 
 // ── Messages → chat items ────────────────────────────────────────────────────
 
