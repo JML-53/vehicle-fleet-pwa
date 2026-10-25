@@ -10,7 +10,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
 import { format, parseISO } from 'date-fns'
-import { ArrowLeft, AlertTriangle, KeyRound } from 'lucide-react'
+import { ArrowLeft, AlertTriangle, KeyRound, Mic } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useProfiles } from '@/lib/changeLog'
 import { MONTHLY_CAP_USD } from '@/lib/mechanic'
@@ -107,6 +107,14 @@ export default function AiUsagePage() {
             Cached input costs 5% of the normal price, so a high cache share keeps long conversations cheap.
           </p>
         </div>
+
+        <Link to="/admin/voice-test" className="card flex items-center gap-3 hover:border-primary-500 transition-colors">
+          <Mic size={18} className="text-primary-700 shrink-0" />
+          <span className="text-sm">
+            <span className="font-semibold text-slate-800 block">Voice noise test</span>
+            <span className="text-slate-500">Record test phrases in the garage and compare speech-to-text services</span>
+          </span>
+        </Link>
 
         {byPerson.length > 0 && (
           <div className="card">

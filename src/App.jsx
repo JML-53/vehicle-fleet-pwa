@@ -34,6 +34,7 @@ import TireComparePage from '@/pages/TireComparePage'
 import MechanicPage from '@/pages/MechanicPage'
 import AiUsagePage from '@/pages/AiUsagePage'
 import GuidesPage from '@/pages/GuidesPage'
+import VoiceTestPage from '@/pages/VoiceTestPage'
 import GuidePage from '@/pages/GuidePage'
 import GuideRunPage from '@/pages/GuideRunPage'
 import RequireAdmin from '@/components/RequireAdmin'
@@ -114,6 +115,7 @@ export default function App() {
         <Route path="guides/:guideId/run/:runId" element={<GuideRunPage />} />
         <Route path="admin/users"                element={<RequireAdmin><AdminUsersPage /></RequireAdmin>} />
         <Route path="admin/ai-usage"             element={<RequireAdmin><AiUsagePage /></RequireAdmin>} />
+        <Route path="admin/voice-test"           element={<RequireAdmin><VoiceTestPage /></RequireAdmin>} />
       </Route>
 
       {/* Catch-all */}
