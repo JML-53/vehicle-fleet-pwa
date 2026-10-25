@@ -238,19 +238,47 @@ export function createSpeaker({ getVoice, getRate, onState, onError }) {
   }
 }
 
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+/** 1/2" drive, 22" wheels → inch; a quote closing a quoted number ("P0300") is left alone */
+function inchMarks(s) {
+  return s.replace(/(\d)\s*["″”](?=[\s,.;:)-]|$)/g, (m, d, at) => {
+    const before = s.slice(0, at)
+    const open = (before.match(/(?<!\d\s?)["“]/g) ?? []).length - (before.match(/(?<!\d\s?)”/g) ?? []).length
+    return open % 2 ? m : `${d} inch`
+  })
+}
+
 /** Markdown and shop shorthand → words that sound right read aloud */
 export function speechText(s = '') {
-  return s
+  return inchMarks(s
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/^\s*\|.*\|\s*$/gm, ' ')                 // table rows
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')         // [text](url) → text
     .replace(/https?:\/\/\S+/g, ' ')
     .replace(/^\s*(#{1,6}|[-*•]|\d+[.)])\s+/gm, '')  // headings, list markers
-    .replace(/[*_`>#]/g, '')
+    .replace(/#(\d)/g, 'number $1')                  // the #1 cause
+    .replace(/[*_`>#]/g, ''))
+    .replace(/(?<![\d/])(0?[1-9]|1[0-2])\/((?:19|20)\d\d)\b/g, (m, mo, yr) => `${MONTHS[mo - 1]} ${yr}`)   // 05/2026
+    .replace(/(\d)\s*in[.\s-]*lbs?\b/gi, '$1 inch-pounds')
     .replace(/\bft[.\s-]*lbs?\b/gi, 'foot-pounds')
+    .replace(/\blbs?[.\s-]*ft\b/gi, 'pound-feet')
+    .replace(/(\d)\s*lbs?\b/gi, '$1 pounds')
+    .replace(/(\d)\s*in\.(?=\s)/g, '$1 inch')
+    .replace(/(\d)\s*N[·.-]?m\b/g, '$1 newton-meters')
     .replace(/(\d)\s*mm\b/gi, '$1 millimeter')
+    .replace(/(\d)\s*L\b/g, '$1 liter')
     .replace(/(\d)\s*qts?\b/gi, '$1 quarts')
-    .replace(/(\d)\s*°\s*F\b/g, '$1 degrees')
+    .replace(/(\d)\s*gal\b/gi, '$1 gallons')
+    .replace(/(\d)\s*fl\.?\s*oz\b/gi, '$1 fluid ounces')
+    .replace(/(\d)\s*oz\b/gi, '$1 ounces')
+    .replace(/(\d)\s*psi\b/gi, '$1 P S I')
+    .replace(/(\d)\s*mph\b/gi, '$1 miles per hour')
+    .replace(/(\d)\s*°\s*C\b/g, '$1 degrees Celsius')
+    .replace(/(\d)\s*°(\s*F\b)?/g, '$1 degrees')
+    .replace(/(\d)\s*–\s*(?=[$\d])/g, '$1 to ')      // ranges: 2–3 hours, $60–120
+    .replace(/(\d)\+(?=\s|$)/g, '$1 plus')
+    .replace(/\s\+\s/g, ' plus ')
     .replace(/~\s*/g, 'about ')
     .replace(/\s+/g, ' ')
     .trim()

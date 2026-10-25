@@ -242,7 +242,9 @@ export function stepSpeech(step, i, n) {
   return [
     `Step ${i + 1} of ${n}. ${step.title}.`,
     step.detail,
-    step.size && `Use a ${step.size}.`,
+    step.size && (/^\d/.test(step.size)
+      ? `Use ${/^(8|11|18)(?!\d)|^8\d/.test(step.size) ? 'an' : 'a'} ${step.size}.`   // an 8 mm, an 11/16"
+      : `Size: ${step.size}.`),                                                    // "Likely 14 mm (confirm)"
     step.torque && `${step.torque}.`,
     step.caution && `Caution: ${step.caution}`,
     step.tip && `Tip: ${step.tip}`,

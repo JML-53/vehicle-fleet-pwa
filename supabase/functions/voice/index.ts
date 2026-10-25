@@ -60,6 +60,28 @@ const LOCALES           = ["en-US", "en-GB", "en-AU", "en-IN", "en-IE", "en-NZ"]
 const MAX_SPEAK_CHARS   = 1500
 const SPEAK_USD_PER_CHAR = 30 / 1_000_000      // list price; Google's first 1M characters a month are free
 
+// Words Google says wrong → IPA (Chirp 3 HD custom pronunciations). Add as the family hears them;
+// units and symbols are spelled out on the phone instead (speechText in src/lib/voice.js).
+// Each voice only takes its own accent's phonemes (10/25): American voices want the "r" after a
+// vowel (ər), UK and Australian voices refuse it (ə), and Indian English voices refuse custom
+// pronunciations altogether, so they say these words their own way.
+const PRONUNCIATIONS: Record<string, { us: string; uk: string }> = {
+  baster:  { us: "ˈbeɪstər",  uk: "ˈbeɪstə" },    // BAY-ster, not like "faster"
+  basters: { us: "ˈbeɪstərz", uk: "ˈbeɪstəz" },
+}
+const NO_CUSTOM_PRONUNCIATIONS = ["en-IN"]
+
+/** The dictionary entries this text uses, in the casing it uses them, for this voice's accent */
+function pronunciationsFor(text: string, locale: string) {
+  if (NO_CUSTOM_PRONUNCIATIONS.includes(locale)) return []
+  const found = new Map<string, string>()
+  for (const [word] of text.matchAll(/[A-Za-z]+/g)) {
+    const entry = PRONUNCIATIONS[word.toLowerCase()]
+    if (entry) found.set(word, locale === "en-US" ? entry.us : entry.uk)
+  }
+  return [...found].map(([phrase, pronunciation]) => ({ phrase, phoneticEncoding: "PHONETIC_ENCODING_IPA", pronunciation }))
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: CORS })
@@ -93,20 +115,33 @@ serve(async (req) => {
       const ok = /^en-[A-Z]{2}-Chirp3-HD-[A-Za-z]+$/.test(body.voice ?? "") && LOCALES.includes(body.voice.slice(0, 5))
       const voice = ok ? body.voice : DEFAULT_VOICE
       const rate  = Math.min(1.5, Math.max(0.75, Number(body.rate) || 1))
-      const res = await fetch(`${GOOGLE_TTS}/text:synthesize`, {
+      const pronunciations = pronunciationsFor(text, voice.slice(0, 5))
+      const synthesize = (custom: boolean) => fetch(`${GOOGLE_TTS}/text:synthesize`, {
         method: "POST",
         headers: { "X-Goog-Api-Key": googleKey, "Content-Type": "application/json" },
         body: JSON.stringify({
-          input: { text },
+          input: { text, ...(custom && pronunciations.length && { customPronunciations: { pronunciations } }) },
           voice: { languageCode: voice.slice(0, 5), name: voice },   // e.g. en-GB from en-GB-Chirp3-HD-Charon
           audioConfig: { audioEncoding: "MP3", speakingRate: rate },
         }),
       })
-      const data: any = await res.json().catch(() => ({}))
+      let res = await synthesize(true)
+      let data: any = await res.json().catch(() => ({}))
+      let custom = pronunciations.length ? "applied" : "none"
+      if (!res.ok && pronunciations.length) {
+        // A dictionary entry this voice won't take: say the sentence plainly rather than not at all
+        console.warn(`voice: pronunciations refused for ${voice}: ${data?.error?.message}`)
+        custom = "refused"
+        res = await synthesize(false)
+        data = await res.json().catch(() => ({}))
+      }
       if (!res.ok || !data.audioContent) return fail(`Google: ${data?.error?.message ?? res.status}`)
       await logUsage(service, profile.id, "voice_speak", "chirp3-hd", text.length * SPEAK_USD_PER_CHAR)
       return new Response(fromBase64(data.audioContent), {
-        headers: { ...CORS, "Content-Type": "audio/mpeg", "Cache-Control": "no-store" },
+        headers: {
+          ...CORS, "Content-Type": "audio/mpeg", "Cache-Control": "no-store",
+          "X-Pronunciations": custom, "Access-Control-Expose-Headers": "X-Pronunciations",
+        },
       })
     }
 
