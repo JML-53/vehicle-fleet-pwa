@@ -33,6 +33,7 @@ import AdminUsersPage from '@/pages/AdminUsersPage'
 import TireComparePage from '@/pages/TireComparePage'
 import MechanicPage from '@/pages/MechanicPage'
 import AiUsagePage from '@/pages/AiUsagePage'
+import GuidesPage from '@/pages/GuidesPage'
 import GuidePage from '@/pages/GuidePage'
 import GuideRunPage from '@/pages/GuideRunPage'
 import RequireAdmin from '@/components/RequireAdmin'
@@ -108,6 +109,7 @@ export default function App() {
         <Route path="changes"                    element={<ChangesPage />} />
         <Route path="tools/tires"                element={<TireComparePage />} />
         <Route path="mechanic/:conversationId?"  element={<MechanicPage />} />
+        <Route path="guides"                     element={<GuidesPage />} />
         <Route path="guides/:guideId"            element={<GuidePage />} />
         <Route path="guides/:guideId/run/:runId" element={<GuideRunPage />} />
         <Route path="admin/users"                element={<RequireAdmin><AdminUsersPage /></RequireAdmin>} />

@@ -172,6 +172,21 @@ export function useProfiles() {
   })
 }
 
+/**
+ * "Hide system changes" on the Changes page (stored in this browser, on by
+ * default). System = no signed-in user: CLI scripts, migrations, roadmap
+ * handoffs. The nav counter follows the same setting.
+ */
+export const HIDE_SYSTEM_KEY = 'changes_hide_system'
+export function readHideSystem() {
+  try {
+    const raw = localStorage.getItem(HIDE_SYSTEM_KEY)
+    return raw == null ? true : JSON.parse(raw)
+  } catch {
+    return true
+  }
+}
+
 /** Changes by others since my last visit to the Changes page (+ pending deletion requests for admin). */
 export function useUnseenChangeCount() {
   const { user, profile, isAdmin } = useAuth()
@@ -186,11 +201,15 @@ export function useUnseenChangeCount() {
   const { data = 0 } = useQuery({
     queryKey: ['unseen_changes', user?.id, lastSeen, isAdmin],
     queryFn: async () => {
-      const { count, error } = await supabase
+      // Read at fetch time: the setting is changed on the Changes page, which then refetches this
+      let q = supabase
         .from('audit_log')
         .select('id', { count: 'exact', head: true })
         .gt('changed_at', lastSeen)
-        .or(`changed_by.is.null,changed_by.neq.${user.id}`)
+      q = readHideSystem()
+        ? q.not('changed_by', 'is', null).neq('changed_by', user.id)
+        : q.or(`changed_by.is.null,changed_by.neq.${user.id}`)
+      const { count, error } = await q
       if (error) throw error
       let total = count || 0
       if (isAdmin) {

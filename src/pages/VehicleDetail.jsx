@@ -14,7 +14,8 @@ import PendingActionSheet from '@/components/PendingSheets'
 import { format, parseISO, isBefore, addDays } from 'date-fns'
 import { Plus, ArrowLeft, Gauge, Pencil, Upload, Link2, ChevronDown, ChevronUp, ShieldCheck, ShieldX, AlertTriangle, Clock, CircleDot, MessagesSquare, ShieldAlert, CheckCircle2, BookOpen } from 'lucide-react'
 import { askMechanic, isUnverified, SPEC_SOURCE_LABEL, VERIFICATION_LABEL, hostname } from '@/lib/mechanic'
-import { useGuides, DIFFICULTY_META } from '@/lib/guides'
+import { useGuides } from '@/lib/guides'
+import { GuideListItem } from '@/components/guides/GuideSections'
 import { useAuth } from '@/contexts/AuthContext'
 
 // ---- Data hooks ----
@@ -817,25 +818,7 @@ function GuidesTab({ vehicleId }) {
       {!isLoading && !data?.length && (
         <Empty message="No guides yet. Ask the mechanic to make one for a job you'll do yourself, like an oil change or a brake job." />
       )}
-      {(data || []).map(g => {
-        const diff = DIFFICULTY_META[g.body?.difficulty]
-        const active = (g.guide_runs || []).some(r => r.status === 'active')
-        return (
-          <Link key={g.id} to={`/guides/${g.id}`} className="card block hover:border-primary-500 transition-colors">
-            <div className="flex items-start justify-between gap-2">
-              <p className="font-semibold text-sm text-slate-800">{g.title}</p>
-              <div className="flex flex-wrap justify-end gap-1.5 shrink-0">
-                {active && <span className="badge-blue">in progress</span>}
-                {g.verified_at ? <span className="badge-green">worked as written</span> : <span className="badge-amber">not yet verified</span>}
-              </div>
-            </div>
-            <p className="text-xs text-slate-500 mt-1">
-              {diff && `${diff.label} · `}{g.body?.time_estimate && `${g.body.time_estimate} · `}
-              {(g.body?.steps || []).length} steps · version {g.version} · {(g.guide_runs || []).length} job{(g.guide_runs || []).length === 1 ? '' : 's'}
-            </p>
-          </Link>
-        )
-      })}
+      {(data || []).map(g => <GuideListItem key={g.id} guide={g} />)}
     </div>
   )
 }

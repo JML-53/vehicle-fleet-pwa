@@ -41,6 +41,29 @@ export function useGuides(vehicleId) {
   })
 }
 
+/** Every guide in the fleet (the Guides page) */
+export function useAllGuides() {
+  return useQuery({
+    queryKey: ['guides', 'all'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('guides')
+        .select('id, title, job_type, version, verified_at, body, vehicle_id, vehicles(name, status), guide_runs(id, status, started_at)')
+        .order('title')
+      if (error) throw error
+      return data
+    },
+  })
+}
+
+/**
+ * The topic a guide is filed under: the mechanic's job_type ("Oil change"),
+ * compared case-insensitively so "Oil change" and "oil change" group together.
+ */
+export function guideTopic(g) {
+  const t = (g.job_type || '').trim()
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : 'Other'
+}
+
 export function useGuide(id) {
   return useQuery({
     queryKey: ['guide', id],

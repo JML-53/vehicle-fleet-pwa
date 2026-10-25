@@ -5,18 +5,21 @@
  * Every insert/update/delete on user-data tables is captured by the
  * audit_row() trigger; this page groups them into per-person "sessions".
  * Opening the page marks changes as seen (clears the nav counter).
+ * "Hide system changes" (remembered, on by default) drops entries with no
+ * signed-in user — scripts and roadmap handoffs — so family edits stand out.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO, isToday, isYesterday } from 'date-fns'
 import { ChevronDown, ChevronRight, ExternalLink, Flag, X, History } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   useAuditLog, useProfiles, useMarkChangesSeen, useDeletionRequests, useResolveDeletion,
-  groupSessions, describeEntry, entryLink, entryDiff, meta,
+  groupSessions, describeEntry, entryLink, entryDiff, meta, HIDE_SYSTEM_KEY,
 } from '@/lib/changeLog'
+import { useStoredState } from '@/lib/useStoredState'
 
 function useVehicleNames() {
   return useQuery({
@@ -178,10 +181,13 @@ export default function ChangesPage() {
   const { data: people = {} }   = useProfiles()
   const { data: vehicles = {} } = useVehicleNames()
   const markSeen = useMarkChangesSeen()
+  const qc = useQueryClient()
 
   const [hideMine, setHideMine] = useState(true)
+  const [hideSystem, saveHideSystem] = useStoredState(HIDE_SYSTEM_KEY, true)
   const [vehicle,  setVehicle]  = useState('')
   const [person,   setPerson]   = useState('')
+  const setHideSystem = v => { saveHideSystem(v); qc.invalidateQueries({ queryKey: ['unseen_changes'] }) }
 
   // Remember what "new" meant when the page opened, then mark everything seen
   const seenBefore = useRef(undefined)
@@ -192,11 +198,12 @@ export default function ChangesPage() {
 
   const sessions = useMemo(() => {
     const filtered = entries.filter(e =>
-      (!hideMine || e.changed_by !== user?.id) &&
-      (!vehicle  || e.vehicle_id === vehicle) &&
-      (!person   || e.changed_by === person))
+      (!hideMine   || e.changed_by !== user?.id) &&
+      (!hideSystem || e.changed_by) &&
+      (!vehicle    || e.vehicle_id === vehicle) &&
+      (!person     || e.changed_by === person))
     return groupSessions(filtered)
-  }, [entries, hideMine, vehicle, person, user])
+  }, [entries, hideMine, hideSystem, vehicle, person, user])
 
   const byDay = useMemo(() => {
     const days = []
@@ -236,17 +243,25 @@ export default function ChangesPage() {
               <option key={p.id} value={p.id}>{p.display_name}</option>
             ))}
           </select>
-          <label className="flex items-center gap-1.5 text-sm text-slate-600 ml-auto">
-            <input type="checkbox" checked={hideMine} onChange={e => setHideMine(e.target.checked)} />
-            Hide my changes
-          </label>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 ml-auto">
+            <label className="flex items-center gap-1.5 text-sm text-slate-600">
+              <input type="checkbox" checked={hideMine} onChange={e => setHideMine(e.target.checked)} />
+              Hide my changes
+            </label>
+            <label className="flex items-center gap-1.5 text-sm text-slate-600"
+              title="Changes with no signed-in person: scripts, migrations and roadmap updates">
+              <input type="checkbox" checked={hideSystem} onChange={e => setHideSystem(e.target.checked)} />
+              Hide system changes
+            </label>
+          </div>
         </div>
 
         {isLoading && <p className="text-sm text-slate-400 animate-pulse">Loading…</p>}
         {error && <p className="text-sm text-red-600">{error.message}</p>}
         {!isLoading && !error && byDay.length === 0 && (
           <p className="text-sm text-slate-400 italic">
-            No changes to show{hideMine ? ' from others' : ''} in the last 30 days.
+            No changes to show in the last 30 days
+            {(hideMine || hideSystem) && ` (hiding ${[hideMine && 'yours', hideSystem && 'system changes'].filter(Boolean).join(' and ')})`}.
           </p>
         )}
 

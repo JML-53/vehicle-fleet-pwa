@@ -2,8 +2,37 @@
  * Pieces of a guide (item 29, phase 1b), shared by the guide page, check-off
  * mode and the mechanic's guide card.
  */
+import { Link } from 'react-router-dom'
 import { AlertTriangle, Lightbulb, ExternalLink, ShieldAlert } from 'lucide-react'
 import { SPEC_SOURCE_LABEL, hostname } from '@/lib/mechanic'
+import { DIFFICULTY_META } from '@/lib/guides'
+
+/**
+ * One guide in a list: the vehicle's Guides tab and the fleet-wide Guides page.
+ * label = small line above the title (the vehicle, or the topic).
+ */
+export function GuideListItem({ guide: g, label }) {
+  const diff = DIFFICULTY_META[g.body?.difficulty]
+  const runs = g.guide_runs || []
+  return (
+    <Link to={`/guides/${g.id}`} className="card block hover:border-primary-500 transition-colors">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          {label && <p className="text-xs text-slate-400">{label}</p>}
+          <p className="font-semibold text-sm text-slate-800">{g.title}</p>
+        </div>
+        <div className="flex flex-wrap justify-end gap-1.5 shrink-0">
+          {runs.some(r => r.status === 'active') && <span className="badge-blue">in progress</span>}
+          {g.verified_at ? <span className="badge-green">worked as written</span> : <span className="badge-amber">not yet verified</span>}
+        </div>
+      </div>
+      <p className="text-xs text-slate-500 mt-1">
+        {diff && `${diff.label} · `}{g.body?.time_estimate && `${g.body.time_estimate} · `}
+        {(g.body?.steps || []).length} steps · version {g.version} · {runs.length} job{runs.length === 1 ? '' : 's'}
+      </p>
+    </Link>
+  )
+}
 
 /** Size and torque chips, caution and tip — shown at the step where they're needed */
 export function StepBody({ step, large = false }) {
