@@ -15,7 +15,8 @@
  *   { conversationId?, vehicleId?, message, images?: [{ path, media_type }],
  *     entry?: { kind, id, label },         — entry = where the chat was opened from
  *     guideRunId?,                         — 1b: a chat about the job being done now
- *     intent? }                            — 1b: "guide" = writing a guide (high effort)
+ *     intent?,                             — 1b: "guide" = writing a guide (high effort)
+ *     voice? }                             — 1b: the answer will be spoken (low effort, short)
  *
  * Effort: chat runs at medium. A guide request switches to high with an
  * effort-only system message (beta mid-conversation-output-config) and the
@@ -51,6 +52,11 @@ const CORS = {
 const MODEL            = "claude-opus-5-5"
 const EFFORT           = "medium"        // chat
 const GUIDE_EFFORT     = "high"          // writing a guide
+const VOICE_EFFORT     = "low"           // spoken turns: short answers, fast
+const VOICE_STYLE =
+  "Voice mode: this answer will be read aloud on a phone in a garage. Reply in one to three short spoken " +
+  "sentences: no lists, tables, headings, links or symbols. For a procedure, give one step at a time and " +
+  "end with \"Say next when you're ready.\" Say numbers and units the way a mechanic would."
 const MAX_ROUNDS       = 8               // API calls per user turn (tool use + pause_turn)
 const SOFT_DEADLINE_MS = 120_000         // stop between rounds, well before the function's time limit
 const MONTHLY_CAP_USD  = Number(Deno.env.get("MECHANIC_MONTHLY_CAP_USD") ?? 50)   // keep in step with src/lib/mechanic.js
@@ -310,7 +316,8 @@ serve(async (req) => {
       }
       try {
         await runTurn({ send, isOpen: () => open, conv, profile, service, asUser, client, keySource, message, images,
-                        effort: body.intent === "guide" ? GUIDE_EFFORT : EFFORT })
+                        effort: body.intent === "guide" ? GUIDE_EFFORT : body.voice ? VOICE_EFFORT : EFFORT,
+                        voice: !!body.voice && body.intent !== "guide" })
       } catch (err) {
         send("error", { error: errorText(err) })
       } finally {
@@ -328,7 +335,7 @@ serve(async (req) => {
 // ── One user turn ────────────────────────────────────────────────────────────
 
 async function runTurn(t: any) {
-  const { send, conv, profile, service, asUser, client, keySource, message, images, effort } = t
+  const { send, conv, profile, service, asUser, client, keySource, message, images, effort, voice } = t
   send("start", { conversationId: conv.id })
   const started = Date.now()
 
@@ -387,6 +394,7 @@ async function runTurn(t: any) {
   }
   if (run && !oldRunHash) ctx += `<guide_run>\nThe user is doing this job now.\n${run.guide}\n${run.progress}\n</guide_run>\n`
   else if (run && runHash !== oldRunHash) ctx += `<guide_run_progress>\n${run.progress}\n</guide_run_progress>\n`
+  if (voice) ctx += `${VOICE_STYLE}\n`   // this turn only: it's part of this message, not the system prompt
   ctx += "</app_context>"
   const hash = `${recordHash}:${runHash}`
 

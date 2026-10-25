@@ -1,17 +1,27 @@
 /**
  * voice — Supabase Edge Function (roadmap item 29, phase 1b)
  *
- * Speech for the mechanic through OpenAI (plan decision 1). The key
- * (OPENAI_API_KEY) stays here; the phone only ever talks to this function.
+ * Speech for the mechanic. Listening: OpenAI gpt-transcribe with a vocabulary
+ * hint and English (chosen by the garage noise test, 10/25). Speaking: Google
+ * Cloud Text-to-Speech, Chirp 3 HD voices (OpenAI's TTS shuts down Jan 2027).
+ * The keys (OPENAI_API_KEY, GOOGLE_TTS_API_KEY) stay here; the phone only ever
+ * talks to this function.
  *
  * Request body: { action, ... }
- *   transcribe_test { testId }   admin: run one recorded test phrase (voice_tests
+ *   transcribe { audio, mime, duration }  a short clip (base64) → { text }; text is ""
+ *                                when nothing usable was heard (never act on it)
+ *   speak { text, voice?, rate? }  one sentence → MP3 bytes (audio/mpeg)
+ *   voices                       → { voices: [{ name, label, gender }] } en-US Chirp 3 HD
+ *   transcribe_test { testId, only? }  admin: run one recorded test phrase (voice_tests
  *                                row + its audio in Storage) through each candidate
  *                                transcriber in parallel; saves the results on the
- *                                row and logs the cost in ai_usage.
- * (transcribe and speak for voice mode come after the noise test picks a model)
+ *                                row and logs the cost in ai_usage. `only` = run just
+ *                                these candidate keys and merge them into the row
+ *                                (to try a new setting on recordings already made).
  *
- * Response: { success: true, results } | { success: false, error }
+ * Response: JSON { success: true, … } | { success: false, error }, except a
+ * successful `speak`, which returns the audio itself.
+ * Costs go to ai_usage (voice_listen, voice_speak) and count toward the cap.
  */
 // deno-lint-ignore-file no-explicit-any
 
@@ -32,11 +42,21 @@ const CANDIDATES = [
   { key: "gpt-transcribe+vocab", model: "gpt-transcribe",    vocab: true  },
   { key: "gpt-transcribe",       model: "gpt-transcribe",    vocab: false },
   { key: "gpt-4o-transcribe+vocab", model: "gpt-4o-transcribe", vocab: true  },
+  // After the first garage test: short commands in noise were misheard as Spanish
+  // ("Repita") or nothing; this one says the speech is English and names the commands.
+  { key: "gpt-transcribe+vocab2+en", model: "gpt-transcribe", vocab: true, vocab2: true, english: true, extra: true },
 ]
 const PER_MINUTE_USD: Record<string, number> = {
   "gpt-transcribe": 0.0045, "gpt-4o-transcribe": 0.006, "gpt-4o-mini-transcribe": 0.003,
 }
 const EXTENSION: Record<string, string> = { "audio/webm": "webm", "audio/mp4": "mp4", "audio/mpeg": "mp3", "audio/wav": "wav", "audio/x-m4a": "m4a" }
+
+const LISTEN_MODEL      = "gpt-transcribe"
+const MAX_CLIP_BYTES    = 5 * 1024 * 1024     // ~5 minutes of Opus; push-to-talk clips are seconds
+const GOOGLE_TTS        = "https://texttospeech.googleapis.com/v1"
+const DEFAULT_VOICE     = "en-US-Chirp3-HD-Charon"
+const MAX_SPEAK_CHARS   = 1500
+const SPEAK_USD_PER_CHAR = 30 / 1_000_000      // list price; Google's first 1M characters a month are free
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -46,8 +66,61 @@ serve(async (req) => {
   try {
     const { profile, service } = await requireUser(req)
     const body = await req.json()
+
+    // ── Speaking (Google) ───────────────────────────────────────────────────
+    if (body.action === "speak" || body.action === "voices") {
+      const googleKey = Deno.env.get("GOOGLE_TTS_API_KEY")
+      if (!googleKey) return fail("Speaking isn't set up yet (GOOGLE_TTS_API_KEY).")
+
+      if (body.action === "voices") {
+        const res = await fetch(`${GOOGLE_TTS}/voices?languageCode=en-US`, { headers: { "X-Goog-Api-Key": googleKey } })
+        const data: any = await res.json().catch(() => ({}))
+        if (!res.ok) return fail(`Google: ${data?.error?.message ?? res.status}`)
+        const voices = (data.voices ?? [])
+          .filter((v: any) => v.name?.startsWith("en-US-Chirp3-HD-"))
+          .map((v: any) => ({ name: v.name, label: v.name.replace("en-US-Chirp3-HD-", ""), gender: v.ssmlGender }))
+          .sort((a: any, b: any) => a.label.localeCompare(b.label))
+        return json({ success: true, voices })
+      }
+
+      const text = String(body.text ?? "").trim().slice(0, MAX_SPEAK_CHARS)
+      if (!text) return fail("Nothing to say")
+      const voice = /^en-US-Chirp3-HD-[A-Za-z]+$/.test(body.voice ?? "") ? body.voice : DEFAULT_VOICE
+      const rate  = Math.min(1.5, Math.max(0.75, Number(body.rate) || 1))
+      const res = await fetch(`${GOOGLE_TTS}/text:synthesize`, {
+        method: "POST",
+        headers: { "X-Goog-Api-Key": googleKey, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          input: { text },
+          voice: { languageCode: "en-US", name: voice },
+          audioConfig: { audioEncoding: "MP3", speakingRate: rate },
+        }),
+      })
+      const data: any = await res.json().catch(() => ({}))
+      if (!res.ok || !data.audioContent) return fail(`Google: ${data?.error?.message ?? res.status}`)
+      await logUsage(service, profile.id, "voice_speak", "chirp3-hd", text.length * SPEAK_USD_PER_CHAR)
+      return new Response(fromBase64(data.audioContent), {
+        headers: { ...CORS, "Content-Type": "audio/mpeg", "Cache-Control": "no-store" },
+      })
+    }
+
+    // ── Listening (OpenAI) ──────────────────────────────────────────────────
     const apiKey = Deno.env.get("OPENAI_API_KEY")
     if (!apiKey) return fail("The OpenAI key isn't set up (OPENAI_API_KEY).")
+
+    if (body.action === "transcribe") {
+      const mime = String(body.mime ?? "audio/webm").split(";")[0]
+      const bytes = fromBase64(String(body.audio ?? ""))
+      if (!bytes.length) return fail("No audio")
+      if (bytes.length > MAX_CLIP_BYTES) return fail("That clip is too long")
+      const audio = new Blob([bytes], { type: mime })
+      const raw = await transcribe(apiKey, audio, `clip.${EXTENSION[mime] ?? "webm"}`, LISTEN_MODEL, await listeningHint(service), true)
+      const duration = Math.min(600, Math.max(0, Number(body.duration) || 0))
+      await logUsage(service, profile.id, "voice_listen", LISTEN_MODEL, (duration / 60) * PER_MINUTE_USD[LISTEN_MODEL])
+      // A cough or a clank comes back as "" or "." — report nothing heard rather than a command
+      const text = /[a-z0-9]{2,}/i.test(raw) ? raw : ""
+      return json({ success: true, text })
+    }
 
     if (body.action === "transcribe_test") {
       if (profile.role !== "admin") return fail("Admin only")
@@ -59,11 +132,15 @@ serve(async (req) => {
       const mime = (test.media_type ?? "audio/webm").split(";")[0]
       const filename = `test.${EXTENSION[mime] ?? "webm"}`
       const vocab = await vocabulary(service)
+      const vocab2 = await listeningHint(service)
+      const run = Array.isArray(body.only)
+        ? CANDIDATES.filter(c => body.only.includes(c.key))
+        : CANDIDATES.filter(c => !c.extra)
 
-      const results = await Promise.all(CANDIDATES.map(async (c) => {
+      const fresh = await Promise.all(run.map(async (c: any) => {
         const started = Date.now()
         try {
-          const text = await transcribe(apiKey, blob, filename, c.model, c.vocab ? vocab : "")
+          const text = await transcribe(apiKey, blob, filename, c.model, c.vocab2 ? vocab2 : c.vocab ? vocab : "", c.english)
           return { key: c.key, model: c.model, prompt: c.vocab, text, ms: Date.now() - started,
                    cost_usd: round4((Number(test.duration_s ?? 0) / 60) * (PER_MINUTE_USD[c.model] ?? 0.006)) }
         } catch (err) {
@@ -72,9 +149,13 @@ serve(async (req) => {
         }
       }))
 
+      // `only`: keep the other candidates' results, replace these
+      const results = Array.isArray(body.only)
+        ? [...(test.results ?? []).filter((r: any) => !body.only.includes(r.key)), ...fresh]
+        : fresh
       const { error: upErr } = await service.from("voice_tests").update({ results }).eq("id", test.id)
       if (upErr) return fail(upErr.message)
-      const usage = results.filter(r => !r.error).map(r => ({
+      const usage = fresh.filter(r => !r.error).map(r => ({
         user_id: profile.id, feature: "voice_test", model: r.model, cost_usd: r.cost_usd,
       }))
       if (usage.length) {
@@ -90,12 +171,17 @@ serve(async (req) => {
   }
 })
 
-/** One transcription. The vocabulary hint helps with names and shop jargon. */
-async function transcribe(apiKey: string, audio: Blob, filename: string, model: string, prompt: string) {
+/**
+ * One transcription. The vocabulary hint helps with names and shop jargon;
+ * `english` stops a two-word command in noise being taken for another language.
+ * gpt-transcribe takes a list (`languages`); older models a single `language`.
+ */
+async function transcribe(apiKey: string, audio: Blob, filename: string, model: string, prompt: string, english = false) {
   const form = new FormData()
   form.append("file", audio, filename)
   form.append("model", model)
   if (prompt) form.append("prompt", prompt)
+  if (english) form.append(model === "gpt-transcribe" ? "languages[]" : "language", "en")
   const res = await fetch(OPENAI_URL, { method: "POST", headers: { Authorization: `Bearer ${apiKey}` }, body: form })
   const data: any = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data?.error?.message ?? `OpenAI error ${res.status}`)
@@ -109,6 +195,24 @@ async function vocabulary(service: any) {
   return `Vehicle repair talk in a home garage. Vehicle names: ${names}. ` +
     "Terms: Holley Sniper EFI, AFR, IAC, TPS, O2 sensor, OBD, 0W-20, 5W-30, foot-pounds, millimeter, " +
     "caliper bracket, lug nuts, torque, quarts, dexos."
+}
+
+/** The production hint: the noise-test winner's vocabulary plus the spoken commands */
+async function listeningHint(service: any) {
+  return `${await vocabulary(service)} Also: drain plug. Spoken commands: next step, go back, repeat that, done, where am I.`
+}
+
+// Awaited: an Edge Function can be stopped once it has responded, losing an unawaited insert
+async function logUsage(service: any, userId: string, feature: string, model: string, cost: number) {
+  const { error } = await service.from("ai_usage").insert({ user_id: userId, feature, model, cost_usd: round4(cost) })
+  if (error) console.error("ai_usage insert failed:", error.message)
+}
+
+function fromBase64(b64: string) {
+  const bin = atob(b64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return bytes
 }
 
 const round4 = (n: number) => Math.round(n * 10000) / 10000

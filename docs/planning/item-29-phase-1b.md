@@ -69,7 +69,13 @@ A long job such as the Sniper tune becomes a pending item with a guide that grow
 
 ## Part B — Voice (paid service)
 
-### Recommendation: OpenAI for both directions, after a garage noise test
+> **Update 2026-10-25: decided after the garage noise test.**
+> - **Listening:** OpenAI `gpt-transcribe`, with a vocabulary hint (fleet names, shop terms, the spoken commands) and the language set to English. It scored **99.5%** of words and **100% in noise**, against 89–91% in noise without those settings. See "Noise test results" and "Voice mode build plan" at the end of Part B.
+> - **Speaking:** **Google Cloud Text-to-Speech, Chirp 3 HD voices**, not OpenAI. OpenAI deprecated `gpt-4o-mini-tts` and `tts-1` (shutdown **January 6, 2027**); its replacement is the Realtime API, a live speech-to-speech service rather than a "read this text" call. Google's first million characters each month are free.
+>
+> The original recommendation below is kept for the record.
+
+### Original recommendation (superseded for speaking): OpenAI for both directions, after a garage noise test
 
 | | **OpenAI** (recommended) | Deepgram | ElevenLabs |
 |---|---|---|---|
@@ -110,6 +116,66 @@ A two-hour voice-guided job (you talk ~15 min, it talks ~30 min):
 - the mechanic: about **$2–3** in Claude turns (~60 short, low-effort turns with the manual cached)
 
 The Claude side dominates, so most of the cost control comes from low effort and caching, not from the speech vendor.
+
+### Noise test results (2026-10-25)
+
+22 recordings on Joe's phone: the 10 phrases, 11 quiet and 11 with a shop vac or compressor running. Scored after writing numbers and units the same way ("140 ft-lbs" = "one hundred forty foot-pounds").
+
+| Transcriber | Words | Quiet | Noisy | Key terms | Time |
+|---|---|---|---|---|---|
+| **gpt-transcribe + vocabulary + commands + English** | **99.5%** | 99.1% | **100%** | **98.4%** | **0.6 s** |
+| gpt-4o-transcribe + vocabulary (deprecated) | 95.0% | 99.1% | 90.9% | 96.8% | 0.8 s |
+| gpt-transcribe + vocabulary | 94.4% | 99.1% | 89.6% | 95.2% | 0.8 s |
+| gpt-transcribe, no hint | 93.0% | 96.0% | 90.1% | 93.5% | 0.7 s |
+
+What made the difference:
+- **The vocabulary hint** fixed real mishearings: "Gandalf" heard as "the Outback", "torque" as "took", "Sniper EFI" as "Sniper AFR".
+- **Setting the language to English** fixed short commands in noise: "Repeat that" was heard as Spanish "Repita" by two models, and "Next step" came back empty from one.
+- Remaining miss: "drain plug" heard as "drain pan" in one quiet recording, by every model alike.
+
+The 22 recordings stay until voice mode is verified, then get deleted from the test page.
+
+### Voice mode build plan (build step 5)
+
+**Speaking: Google Chirp 3 HD.** The synchronous `text:synthesize` call returns MP3 for one sentence at a time. Voices are named like `en-US-Chirp3-HD-Charon`, and speaking rate is adjustable (0.25–2.0). Cost: $30 per million characters after the free first million each month. A two-hour voice job is about 15K characters, so in practice $0.
+
+**The `voice` Edge Function gets two production actions** (the noise-test action stays for diagnostics):
+- `transcribe { audio }`: a short clip (base64) → `gpt-transcribe` with the vocabulary + commands hint and English. It returns the text. An empty or one-character result comes back as "didn't catch that", never as a command.
+- `speak { text, voice }`: one sentence → Google → MP3 bytes. The key (`GOOGLE_TTS_API_KEY`) stays on the server.
+- Both log to `ai_usage` (`voice_listen`, `voice_speak`), so they count toward the same $50 cap.
+
+**On the phone (`src/lib/voice.js`):**
+- **Hold to talk:** record while the big button is held, send on release. Playback stops when you start talking.
+- **Sentence-by-sentence speech:** the answer streams from the mechanic; each finished sentence goes to `speak` while the next is being written, and audio plays in order. Decimals ("12.5") and abbreviations don't count as sentence ends.
+- **Mobile audio rules:** phones only play sound after a tap, so the first tap of voice mode unlocks audio for the session.
+- **Voice picker:** four Chirp voices with a Play sample button; the choice is remembered per phone.
+
+**In the mechanic chat:**
+- A **Voice** toggle in the header. When on, the typing box becomes a big **Hold to talk** button (with "type instead"). Your words appear as your message, and the answer is read aloud while it shows on screen.
+- Voice turns tell the mechanic the answer will be heard: 1–3 short sentences, no tables or lists, one step at a time. They run at **low effort** through the same per-message effort change as guides (no cache loss).
+- A **speaker icon** on any answer reads it aloud on request, even with voice mode off.
+
+**In a guide's check-off mode:**
+- **Voice** reads each step as you arrive at it: title, what to do, the size and torque, and any caution.
+- **Commands handled on the phone** (instant, free): "done" / "next step" ticks and moves on; "back" / "go back"; "repeat" / "say that again"; "where am I" (step and progress).
+- **Anything else is a question** to the mechanic in the job's own chat, answered aloud and shown in a small panel, without leaving check-off mode.
+
+**What Joe sets up (about 15 minutes):**
+1. In the Google Cloud console (console.cloud.google.com), create a project, e.g. "fleet-mechanic-voice".
+2. Turn on billing for it (Google requires a billing account even for the free tier). Add a **budget alert at $5**.
+3. APIs & Services → Library → **Cloud Text-to-Speech API** → Enable.
+4. APIs & Services → Credentials → Create credentials → **API key**, then edit it: API restrictions → restrict to **Cloud Text-to-Speech API** only.
+5. Set it yourself, so the key never passes through chat or files: `npx supabase secrets set GOOGLE_TTS_API_KEY=<key>`
+
+**Build order:**
+1. `voice` function: `transcribe` and `speak` (first check: Chirp 3 HD with the API key).
+2. `src/lib/voice.js` and the voice picker.
+3. Chat voice mode, read-aloud, and the voice + low-effort turn in `mechanic-chat`.
+4. Check-off mode voice: read steps, phone-side commands, inline questions.
+5. Verify with synthetic speech here, then Joe in the garage; hand off.
+6. Then Part C: manuals via the Files API, and the Continue button.
+
+**Cost of a two-hour voice job:** listening ~$0.07, speaking $0 (free tier), Claude ~$1.50–2.50 at low effort. About $2–3 in total, almost all Claude.
 
 ---
 

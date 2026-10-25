@@ -35,6 +35,7 @@ export const CANDIDATE_LABEL = {
   'gpt-transcribe+vocab':    'gpt-transcribe + vocabulary',
   'gpt-transcribe':          'gpt-transcribe',
   'gpt-4o-transcribe+vocab': 'gpt-4o-transcribe + vocabulary (older)',
+  'gpt-transcribe+vocab2+en': 'gpt-transcribe + vocabulary + commands + English',
 }
 
 // ── Normalizing ──────────────────────────────────────────────────────────────

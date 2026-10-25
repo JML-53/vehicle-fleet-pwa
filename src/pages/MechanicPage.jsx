@@ -16,10 +16,14 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow, parseISO } from 'date-fns'
-import { ArrowLeft, Camera, Send, X, Trash2, Plus, Loader2, MessagesSquare, BookOpen } from 'lucide-react'
+import { ArrowLeft, Camera, Send, X, Trash2, Plus, Loader2, MessagesSquare, BookOpen, Volume2, VolumeX, Keyboard, Mic } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useProfiles } from '@/lib/changeLog'
+import { useStoredState } from '@/lib/useStoredState'
+import { useVoice, createSentenceSplitter, speakAll, unlockAudio } from '@/lib/voice'
+import TalkButton from '@/components/voice/TalkButton'
+import VoicePicker from '@/components/voice/VoicePicker'
 import {
   sendToMechanic, uploadChatPhoto, useConversation, useConversations, useSavedCards, useVehicleChoices, toChatItems,
 } from '@/lib/mechanic'
@@ -48,6 +52,10 @@ export default function MechanicPage() {
   const [entry, setEntry]         = useState(location.state?.entry || null)
   const [draft, setDraft]         = useState(location.state?.prompt || '')
   const [intent, setIntent]       = useState(location.state?.intent || null)   // applies to the next send only
+  // 1b voice mode: answers are spoken; the typing box becomes hold-to-talk ("type instead" switches back)
+  const [voiceMode, setVoiceMode] = useStoredState('mechanic_voice_mode', false)
+  const [typing, setTyping]       = useState(false)
+  const voice = useVoice()
   const [guideRunId, setGuideRunId] = useState(location.state?.guideRunId || null)
   const [photos, setPhotos]       = useState([])     // [{ path, media_type, url }]
   const [uploading, setUploading] = useState(false)
@@ -120,16 +128,20 @@ export default function MechanicPage() {
 
     let convId = conversationId
     abortRef.current = new AbortController()
+    // Voice mode: speak each sentence as soon as it's complete, while the rest is still being written
+    const spoken = voiceMode ? createSentenceSplitter(sentence => voice.speak(sentence)) : null
+    const asVoice = voiceMode && sendIntent !== 'guide'
     try {
       await sendToMechanic(
         convId
-          ? { conversationId: convId, message: text, images, intent: sendIntent }
-          : { vehicleId: vehicleId || null, message: text, images, entry, intent: sendIntent, guideRunId },
+          ? { conversationId: convId, message: text, images, intent: sendIntent, voice: asVoice }
+          : { vehicleId: vehicleId || null, message: text, images, entry, intent: sendIntent, guideRunId, voice: asVoice },
         ev => {
           if (ev.type === 'start' && !convId) {
             convId = ev.conversationId
             navigate(`/mechanic/${convId}`, { replace: true })
           } else if (ev.type === 'text') {
+            spoken?.push(ev.delta)
             setLive(l => l && { ...l, text: l.text + ev.delta, activity: null })
           } else if (ev.type === 'activity') {
             setLive(l => l && { ...l, activity: ev.label })
@@ -148,10 +160,38 @@ export default function MechanicPage() {
       if (err.name !== 'AbortError') setError(err.message)
       if (!convId) { setDraft(text); setIntent(sendIntent) }   // nothing was saved: give the question back
     } finally {
+      spoken?.flush()
       if (convId) await qc.invalidateQueries({ queryKey: ['ai_conversation', convId] })
       qc.invalidateQueries({ queryKey: ['ai_conversations'] })
       setLive(null)
     }
+  }
+
+  // Hold-to-talk released: send what was heard, never act on nothing
+  function onTranscript(text) {
+    if (!text) {
+      setNotice("Didn't catch that. Hold the button while you talk, then let go.")
+      return
+    }
+    setNotice(null)
+    send({ text })
+  }
+
+  function toggleVoice() {
+    if (voiceMode) {
+      voice.stopSpeaking()
+      setVoiceMode(false)
+    } else {
+      unlockAudio()                 // this tap lets the phone play the answers later
+      setVoiceMode(true)
+      setTyping(false)
+    }
+  }
+
+  function readAloud(text) {
+    unlockAudio()
+    voice.stopSpeaking()
+    speakAll(voice.speaker, text)
   }
 
   // In a chat that already covered the job: ask for the guide now. In a new chat: say what job first.
@@ -195,6 +235,12 @@ export default function MechanicPage() {
               </p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
+              <button type="button" onClick={toggleVoice} aria-pressed={voiceMode}
+                title={voiceMode ? 'Voice on: answers are read aloud' : 'Turn on voice'}
+                className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-lg ${
+                  voiceMode ? 'bg-amber-500 hover:bg-amber-400 text-white' : 'bg-primary-700 hover:bg-primary-600 text-white'}`}>
+                {voiceMode ? <Volume2 size={13} /> : <VolumeX size={13} />} Voice
+              </button>
               {conversationId && (
                 <button type="button" disabled={busy}
                   onClick={() => navigate('/mechanic', { state: { vehicleId: conv?.vehicle_id } })}
@@ -224,6 +270,12 @@ export default function MechanicPage() {
 
       {/* Conversation */}
       <div className="flex-1 p-4 max-w-3xl mx-auto w-full space-y-4">
+        {voiceMode && (
+          <div className="card py-3 space-y-1">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Mechanic's voice</p>
+            <VoicePicker voice={voice} />
+          </div>
+        )}
         {!conversationId && !busy && (
           <StartPanel vehicleId={vehicleId} people={people} showStarters={!draft}
             onStarter={s => setDraft(s)} entry={entry} />
@@ -233,6 +285,7 @@ export default function MechanicPage() {
           ? <UserBubble key={it.key} item={it}
               authorName={it.author && it.author !== user?.id ? people[it.author]?.display_name : null} />
           : <AssistantBubble key={it.key} item={it} conversation={conv} conversationId={conversationId} saved={saved}
+              onSpeak={!busy ? readAloud : undefined}
               streamingText={streamInLast && it === lastItem ? live.text : ''}
               activity={streamInLast && it === lastItem ? live.activity : null} />
         )}
@@ -289,7 +342,31 @@ export default function MechanicPage() {
               ))}
             </div>
           )}
+          {voiceMode && !typing ? (
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => fileRef.current?.click()}
+                disabled={busy || uploading || photos.length >= MAX_PHOTOS}
+                aria-label="Add a photo" title="Add a photo"
+                className="shrink-0 w-11 h-11 inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 hover:text-primary-700 disabled:opacity-40">
+                {uploading ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
+              </button>
+              <div className="flex-1">
+                <TalkButton voice={voice} onTranscript={onTranscript}
+                  disabled={(busy && voice.state !== 'speaking') || uploading} />
+              </div>
+              <button type="button" onClick={() => setTyping(true)} aria-label="Type instead" title="Type instead"
+                className="shrink-0 w-11 h-11 inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 hover:text-primary-700">
+                <Keyboard size={18} />
+              </button>
+            </div>
+          ) : (
           <div className="flex items-end gap-2">
+            {voiceMode && (
+              <button type="button" onClick={() => setTyping(false)} aria-label="Talk instead" title="Talk instead"
+                className="shrink-0 w-10 h-10 inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 hover:text-primary-700">
+                <Mic size={17} />
+              </button>
+            )}
             <button type="button" onClick={() => fileRef.current?.click()}
               disabled={busy || uploading || photos.length >= MAX_PHOTOS}
               aria-label="Add a photo" title="Add a photo"
@@ -308,6 +385,8 @@ export default function MechanicPage() {
               {busy ? <Loader2 size={17} className="animate-spin" /> : <Send size={17} />}
             </button>
           </div>
+          )}
+          {voice.error && <p className="text-xs text-red-600">{voice.error}</p>}
           <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={pickPhotos} />
         </div>
       </div>

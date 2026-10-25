@@ -6,7 +6,7 @@
 import { useQuery } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Search, Globe, Loader2 } from 'lucide-react'
+import { Search, Globe, Loader2, Volume2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import ProposalCard from './ProposalCard'
 
@@ -54,7 +54,7 @@ export function UserBubble({ item, authorName }) {
   )
 }
 
-export function AssistantBubble({ item, conversation, conversationId, saved, streamingText, activity }) {
+export function AssistantBubble({ item, conversation, conversationId, saved, streamingText, activity, onSpeak }) {
   const text = item ? item.text + (streamingText || '') : streamingText || ''
   const activities = item?.activities ?? []
   return (
@@ -69,6 +69,12 @@ export function AssistantBubble({ item, conversation, conversationId, saved, str
         </div>
       )}
       {text.trim() && <ChatMarkdown text={text} />}
+      {onSpeak && item?.text.trim() && (
+        <button type="button" onClick={() => onSpeak(item.text)}
+          className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-primary-700">
+          <Volume2 size={13} /> Read aloud
+        </button>
+      )}
       {activity && (
         <p className="flex items-center gap-1.5 text-xs text-slate-500">
           <Loader2 size={12} className="animate-spin" /> {activity}

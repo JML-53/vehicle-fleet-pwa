@@ -11,18 +11,28 @@
  * Finish: "worked as written" verifies the guide (and offers to verify its
  * saved specs); "with changes" asks the mechanic for an updated version from
  * the step notes. Then Log the service visit for the linked pending item.
+ *
+ * Voice (1b): each step is read aloud as you arrive at it. Hold to talk:
+ * "done / next", "back", "repeat", "skip" and "where am I" are matched on the
+ * phone (instant, free); anything else is a question to the mechanic in the
+ * job's chat, answered aloud in a panel here.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import {
   ArrowLeft, Check, ChevronLeft, ChevronRight, StickyNote, MessagesSquare, ListChecks, Flag, Undo2, CheckCircle2,
+  Volume2, VolumeX, Loader2,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { useStoredState } from '@/lib/useStoredState'
 import { usePendingItem, fromPendingState } from '@/lib/pendingWork'
-import { askMechanic } from '@/lib/mechanic'
+import { askMechanic, sendToMechanic } from '@/lib/mechanic'
+import { useVoice, matchCommand, speakAll, unlockAudio, createSentenceSplitter } from '@/lib/voice'
+import TalkButton from '@/components/voice/TalkButton'
+import VoicePicker from '@/components/voice/VoicePicker'
 import {
   useGuide, useGuideRun, useGuideSavedSpecs, firstOpenStep, setStepDone, setStepNote, finishRun,
   verifyGuideSpecs, invalidateGuides,
@@ -41,6 +51,19 @@ function useRunConversation(runId) {
     },
     enabled: !!runId,
   })
+}
+
+/** What's read aloud on arriving at a step (or past the last one) */
+function stepSpeech(step, i, n) {
+  if (!step) return "That's every step. Check the after-the-job list, then tap Finish job."
+  return [
+    `Step ${i + 1} of ${n}. ${step.title}.`,
+    step.detail,
+    step.size && `Use a ${step.size}.`,
+    step.torque && `${step.torque}.`,
+    step.caution && `Caution: ${step.caution}`,
+    step.tip && `Tip: ${step.tip}`,
+  ].filter(Boolean).join(' ')
 }
 
 /** Keep the phone's screen on while a job is open (re-acquired after switching apps) */
@@ -85,10 +108,23 @@ export default function GuideRunPage() {
   const isActive = run?.status === 'active'
   useWakeLock(isActive)
 
+  const [voiceOn, setVoiceOn] = useStoredState('guide_voice_mode', false)
+  const voice = useVoice()
+  const [answer, setAnswer] = useState(null)       // { question, text, busy, error } from a spoken question
+  const spokenIdx = useRef(null)
+
   // Open on the first step not yet done (once, when the run loads)
   useEffect(() => {
     if (idx === null && run && g) setIdx(firstOpenStep(run, steps.length))
   }, [run, g]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Voice: read each step once as you arrive at it
+  useEffect(() => {
+    if (!voiceOn || idx === null || !g || run?.status !== 'active' || spokenIdx.current === idx) return
+    spokenIdx.current = idx
+    voice.stopSpeaking()
+    speakAll(voice.speaker, stepSpeech(steps[idx], idx, steps.length))
+  }, [idx, voiceOn, g, run?.status]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!g || !run || idx === null) return <div className="p-4 text-slate-400 text-sm animate-pulse">Loading job…</div>
 
@@ -126,6 +162,61 @@ export default function GuideRunPage() {
     })
   }
 
+  function toggleVoice() {
+    if (voiceOn) {
+      voice.stopSpeaking()
+      setVoiceOn(false)
+    } else {
+      unlockAudio()                 // this tap lets the phone play the steps
+      spokenIdx.current = null      // read the current step now
+      setVoiceOn(true)
+    }
+  }
+
+  /** Hold-to-talk released: a command handled here, or a question for the mechanic */
+  function onVoice(text) {
+    if (!text) { voice.speak("Sorry, I didn't catch that."); return }
+    switch (matchCommand(text)) {
+      case 'done':
+        if (step && !row?.done_at) markDone()
+        else setIdx(i => Math.min(i + 1, steps.length))
+        return
+      case 'back':   setIdx(i => Math.max(0, i - 1)); return
+      case 'skip':   setIdx(i => Math.min(i + 1, steps.length)); return
+      case 'repeat': voice.stopSpeaking(); speakAll(voice.speaker, stepSpeech(step, idx, steps.length)); return
+      case 'where':  voice.speak(`You're on step ${Math.min(idx + 1, steps.length)} of ${steps.length}, with ${doneCount} done.`); return
+      default:       askInline(text)
+    }
+  }
+
+  /** A spoken question → the job's chat (voice turn: short answer), read aloud as it arrives */
+  async function askInline(question) {
+    setAnswer({ question, text: '', busy: true })
+    const spoken = createSentenceSplitter(sentence => voice.speak(sentence))
+    const message = step ? `(On step ${idx + 1}: ${step.title}) ${question}` : question
+    try {
+      await sendToMechanic(
+        chat?.id
+          ? { conversationId: chat.id, message, voice: true }
+          : { vehicleId: g.vehicle_id, guideRunId: runId, message, voice: true,
+              entry: { kind: 'guide step', id: runId, label: `${g.title}${step ? `, step ${idx + 1}` : ''}` } },
+        ev => {
+          if (ev.type === 'text') {
+            spoken.push(ev.delta)
+            setAnswer(a => a && { ...a, text: a.text + ev.delta })
+          } else if (ev.type === 'error') {
+            setAnswer(a => a && { ...a, error: ev.error })
+          }
+        })
+    } catch (err) {
+      setAnswer(a => a && { ...a, error: err.message })
+    } finally {
+      spoken.flush()
+      setAnswer(a => a && { ...a, busy: false })
+      qc.invalidateQueries({ queryKey: ['ai_conversations', 'run', runId] })
+    }
+  }
+
   async function finish(outcome) {
     setBusy(true); setError(null)
     try {
@@ -148,9 +239,18 @@ export default function GuideRunPage() {
       {/* Header + progress */}
       <div className="bg-primary-900 text-white px-4 py-3">
         <div className="max-w-2xl mx-auto">
-          <button onClick={() => navigate(`/guides/${guideId}`)} className="flex items-center gap-1 text-primary-300 text-sm mb-2 hover:text-white">
-            <ArrowLeft size={14} /> Guide
-          </button>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <button onClick={() => navigate(`/guides/${guideId}`)} className="flex items-center gap-1 text-primary-300 text-sm hover:text-white">
+              <ArrowLeft size={14} /> Guide
+            </button>
+            {isActive && (
+              <button type="button" onClick={toggleVoice} aria-pressed={voiceOn}
+                className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-lg ${
+                  voiceOn ? 'bg-amber-500 hover:bg-amber-400 text-white' : 'bg-primary-700 hover:bg-primary-600 text-white'}`}>
+                {voiceOn ? <Volume2 size={13} /> : <VolumeX size={13} />} Voice
+              </button>
+            )}
+          </div>
           <h1 className="text-lg font-bold leading-tight">{g.title}</h1>
           <p className="text-xs text-primary-100 mt-0.5">
             {g.vehicles?.name}{item ? ` · ${item.title}` : ''} · {doneCount} of {steps.length} steps done
@@ -164,6 +264,33 @@ export default function GuideRunPage() {
 
       <div className="flex-1 p-4 max-w-2xl mx-auto w-full space-y-4 pb-10">
         {error && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+
+        {/* Voice: hold to talk for commands or questions; spoken answers show here too */}
+        {voiceOn && isActive && !finished && (
+          <div className="card space-y-3">
+            <TalkButton voice={voice} onTranscript={onVoice} disabled={busy || answer?.busy}
+              label="Hold to talk" />
+            <p className="text-xs text-slate-500 text-center">Say “done”, “back”, “repeat”, “where am I”, or ask a question.</p>
+            {voice.error && <p className="text-xs text-red-600">{voice.error}</p>}
+            {answer && (
+              <div className="border-t border-slate-100 pt-2 space-y-1 text-sm">
+                <p className="text-xs text-slate-500">You asked: “{answer.question}”</p>
+                {answer.busy && !answer.text && (
+                  <p className="flex items-center gap-1.5 text-xs text-slate-500"><Loader2 size={12} className="animate-spin" /> The mechanic is thinking…</p>
+                )}
+                {answer.text && <p className="text-slate-800 whitespace-pre-wrap">{answer.text}</p>}
+                {answer.error && <p className="text-xs text-red-600">{answer.error}</p>}
+                {!answer.busy && chat?.id && (
+                  <Link to={`/mechanic/${chat.id}`} className="text-xs text-primary-700 underline">Open the job's chat</Link>
+                )}
+              </div>
+            )}
+            <details className="text-sm">
+              <summary className="cursor-pointer text-xs text-slate-500">Voice settings</summary>
+              <div className="mt-2"><VoicePicker voice={voice} /></div>
+            </details>
+          </div>
+        )}
 
         {/* Just finished on this phone: next actions */}
         {finished && (
