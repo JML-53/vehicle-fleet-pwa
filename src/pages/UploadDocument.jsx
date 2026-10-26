@@ -3,6 +3,8 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import { REFERENCE_TYPES, setAlsoCovers, invalidateDocuments } from '@/lib/documents'
+import AlsoCoversPicker from '@/components/AlsoCoversPicker'
 import { ArrowLeft, Camera, FileText, X, Sparkles, CheckCircle2, AlertCircle, ChevronRight } from 'lucide-react'
 
 const DOC_TYPES = [
@@ -29,9 +31,12 @@ export default function UploadDocument() {
   const cameraInputRef  = useRef(null)
 
   // When accessed from the fleet documents page (no vehicleId in route),
-  // let the user pick a vehicle from a dropdown.
+  // let the user pick a vehicle from a dropdown, or General (9.7: all vehicles,
+  // for reference documents like a scan-tool manual).
   const [pickedVehicleId, setPickedVehicleId] = useState('')
-  const vehicleId = vehicleIdParam || pickedVehicleId
+  const general   = !vehicleIdParam && pickedVehicleId === 'general'
+  const vehicleId = vehicleIdParam || (general ? '' : pickedVehicleId)
+  const [alsoCovers, setAlsoCoversIds] = useState([])   // 9.7: other vehicles a reference document covers
 
   const { data: vehicles } = useQuery({
     queryKey: ['vehicles_list'],
@@ -41,7 +46,6 @@ export default function UploadDocument() {
       if (error) throw error
       return data
     },
-    enabled: !vehicleIdParam,
   })
 
   // Derive the vehicle display name (for passing to the Edge Function)
@@ -58,11 +62,18 @@ export default function UploadDocument() {
   const [parseState, setParseState]           = useState('idle') // idle | loading | error
   const [parseError, setParseError]           = useState('')
 
-  const { register, handleSubmit, watch, formState: { errors } } = useForm({
+  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm({
     defaultValues: { document_type: 'receipt' },
   })
   const watchedDocType = watch('document_type')
   const docTypeMeta    = DOC_TYPES.find(d => d.value === watchedDocType)
+  const isRef          = REFERENCE_TYPES.has(watchedDocType)
+
+  function pickVehicle(value) {
+    setPickedVehicleId(value)
+    setAlsoCoversIds([])
+    if (value === 'general' && !REFERENCE_TYPES.has(watchedDocType)) setValue('document_type', 'manual')
+  }
 
   function handleFileChange(e) {
     const file = e.target.files?.[0]
@@ -90,7 +101,7 @@ export default function UploadDocument() {
       setUploadProgress('Uploading file…')
 
       const safeName    = selectedFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-      const storagePath = `vehicles/${vehicleId}/${Date.now()}_${safeName}`
+      const storagePath = `${general ? 'general' : `vehicles/${vehicleId}`}/${Date.now()}_${safeName}`
 
       const { error: storageError } = await supabase.storage
         .from('documents')
@@ -102,7 +113,7 @@ export default function UploadDocument() {
       const { data: inserted, error: dbError } = await supabase
         .from('documents')
         .insert({
-          vehicle_id:      vehicleId,
+          vehicle_id:      general ? null : vehicleId,
           document_type:   formValues.document_type,
           document_date:   formValues.document_date || null,
           filename:        selectedFile.name,
@@ -118,13 +129,21 @@ export default function UploadDocument() {
         await supabase.storage.from('documents').remove([storagePath])
         throw new Error(`Database error: ${dbError.message}`)
       }
+      if (REFERENCE_TYPES.has(formValues.document_type) && !general && alsoCovers.length) {
+        await setAlsoCovers(inserted.id, alsoCovers.filter(v => v !== vehicleId))
+      }
 
       return { id: inserted.id, docType: formValues.document_type }
     },
     onSuccess: ({ id, docType }) => {
       setUploadProgress(null)
-      qc.invalidateQueries({ queryKey: ['documents_all'] })
-      qc.invalidateQueries({ queryKey: ['documents', vehicleId] })
+      invalidateDocuments(qc)
+
+      // A manual or reference has no service records to extract: show it where it lives
+      if (REFERENCE_TYPES.has(docType)) {
+        navigate(general ? '/documents' : `/vehicles/${vehicleId}?tab=documents`, { replace: true })
+        return
+      }
 
       const meta     = DOC_TYPES.find(d => d.value === docType)
       const mimeOk   = PARSEABLE_MIME.includes(selectedFile?.type ?? '')
@@ -139,7 +158,8 @@ export default function UploadDocument() {
   // Upload the file, have the AI read it right away, then open the review
   // screen pre-filled with everything. Nothing is saved to the database until
   // the user confirms there.
-  const canRead = !!selectedFile && PARSEABLE_MIME.includes(selectedFile.type)
+  // Not for manuals and references (9.7): Read with AI turns a receipt into a service visit
+  const canRead = !!selectedFile && PARSEABLE_MIME.includes(selectedFile.type) && !general && !isRef
   const readMutation = useMutation({
     mutationFn: async () => {
       setUploadProgress('Uploading…')
@@ -324,7 +344,7 @@ export default function UploadDocument() {
         </button>
         <h1 className="text-xl font-bold">Upload Document</h1>
         <p className="text-primary-300 text-sm mt-0.5">
-          Receipts, estimates, inspection reports, photos
+          Manuals, receipts, estimates, inspection reports, photos
         </p>
       </div>
 
@@ -344,7 +364,7 @@ export default function UploadDocument() {
             <h2 className="card-header">Vehicle <span className="font-normal normal-case tracking-normal text-slate-400 text-xs">(optional with Read with AI)</span></h2>
             <select
               value={pickedVehicleId}
-              onChange={e => setPickedVehicleId(e.target.value)}
+              onChange={e => pickVehicle(e.target.value)}
               className="field-select"
             >
               <option value="">— Select a vehicle —</option>
@@ -353,6 +373,7 @@ export default function UploadDocument() {
                   {v.name || `${v.year} ${v.make} ${v.model}`}
                 </option>
               ))}
+              <option value="general">General (all vehicles): manuals and references</option>
             </select>
           </div>
         )}
@@ -446,11 +467,21 @@ export default function UploadDocument() {
           <div>
             <label className="field-label">Document Type</label>
             <select {...register('document_type')} className="field-select">
-              {DOC_TYPES.map(t => (
+              {DOC_TYPES.filter(t => !general || REFERENCE_TYPES.has(t.value)).map(t => (
                 <option key={t.value} value={t.value}>{t.label}</option>
               ))}
             </select>
           </div>
+          {isRef && !general && vehicleId && (
+            <AlsoCoversPicker
+              vehicles={(vehicles || []).map(v => ({ id: v.id, name: v.name || `${v.year} ${v.make} ${v.model}` }))}
+              filedUnder={vehicleId} value={alsoCovers} onChange={setAlsoCoversIds} />
+          )}
+          {isRef && (
+            <p className="text-xs text-slate-400">
+              The mechanic can read manuals up to about 200 pages (22 MB). For a bigger one, upload the chapters you need.
+            </p>
+          )}
           <div>
             <label className="field-label">Document Date</label>
             <input {...register('document_date')} type="date" className="field-input" />
@@ -479,7 +510,7 @@ export default function UploadDocument() {
         <div className="flex gap-3 pt-2">
           <button
             type="submit"
-            disabled={uploadMutation.isPending || !selectedFile || !vehicleId}
+            disabled={uploadMutation.isPending || !selectedFile || (!vehicleId && !general)}
             className="btn-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {uploadMutation.isPending ? 'Uploading…' : canRead ? 'Upload without reading' : 'Upload Document'}

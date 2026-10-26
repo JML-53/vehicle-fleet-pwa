@@ -16,6 +16,8 @@ import { Plus, ArrowLeft, Gauge, Pencil, Upload, Link2, ChevronDown, ChevronUp, 
 import { askMechanic, isUnverified, SPEC_SOURCE_LABEL, VERIFICATION_LABEL, hostname } from '@/lib/mechanic'
 import { useGuides } from '@/lib/guides'
 import { GuideListItem } from '@/components/guides/GuideSections'
+import { useVehicleDocuments, isReference } from '@/lib/documents'
+import DocumentRow from '@/components/DocumentRow'
 import { useAuth } from '@/contexts/AuthContext'
 
 // ---- Data hooks ----
@@ -824,6 +826,46 @@ function GuidesTab({ vehicleId }) {
 }
 
 /**
+ * Item 9.7: this vehicle's documents. Manuals and references first, including
+ * the shared and General ones that cover it (what the mechanic can open), then
+ * its receipts and records, newest first.
+ */
+function DocumentsTab({ vehicleId }) {
+  const { data = [], isLoading, error } = useVehicleDocuments(vehicleId)
+  const label = d => (d.description || d.filename || '').toLowerCase()
+  const refs    = data.filter(isReference).sort((a, b) => label(a).localeCompare(label(b)))
+  const records = data.filter(d => !isReference(d))
+  return (
+    <div className="space-y-5">
+      <div className="flex justify-end">
+        <Link to={`/vehicles/${vehicleId}/upload-document`}
+          className="inline-flex items-center gap-1.5 btn-primary text-xs py-1.5 px-3">
+          <Upload size={13} /> Upload
+        </Link>
+      </div>
+      {isLoading && <Loading />}
+      {error && <p className="text-sm text-red-600">{error.message}</p>}
+      {!isLoading && !error && (
+        <>
+          <section>
+            <h2 className="card-header mb-2">Manuals & references</h2>
+            {refs.length
+              ? <div className="space-y-2">{refs.map(d => <DocumentRow key={d.id} doc={d} vehicleId={vehicleId} />)}</div>
+              : <Empty message="No manuals yet. Upload one as “Manual / Guide”; the mechanic can open it when you ask." />}
+          </section>
+          <section>
+            <h2 className="card-header mb-2">Receipts & records</h2>
+            {records.length
+              ? <div className="space-y-2">{records.map(d => <DocumentRow key={d.id} doc={d} vehicleId={vehicleId} />)}</div>
+              : <Empty message="No receipts or records yet." />}
+          </section>
+        </>
+      )}
+    </div>
+  )
+}
+
+/**
  * Where a spec came from and whether anyone checked it (item 29, decision 2b).
  * Specs entered by the family (source empty) show nothing.
  */
@@ -1161,6 +1203,7 @@ const TABS = [
   { id: 'visits',       label: 'Visits' },
   { id: 'pending',      label: 'Pending Work' },
   { id: 'guides',       label: 'Guides' },
+  { id: 'documents',    label: 'Documents' },
   { id: 'maintenance',  label: 'Maintenance' },
   { id: 'inspections',  label: 'Inspections' },
   { id: 'mods',         label: 'Modifications' },
@@ -1376,6 +1419,7 @@ export default function VehicleDetail() {
         {tab === 'visits'        && <ServiceVisitsTab  vehicleId={id} />}
         {tab === 'pending'       && <PendingWorkTab    vehicleId={id} />}
         {tab === 'guides'        && <GuidesTab         vehicleId={id} />}
+        {tab === 'documents'     && <DocumentsTab      vehicleId={id} />}
         {tab === 'maintenance'   && <MaintenanceTab    vehicleId={id} />}
         {tab === 'inspections'   && <InspectionsTab    vehicleId={id} />}
         {tab === 'mods'          && <ModsTab           vehicleId={id} />}

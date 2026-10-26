@@ -34,7 +34,8 @@ Replaces `roadmap-task-clusters-0920.md` (kept for history). The live roadmap in
 | 9.1 Link old source documents | deferred · low | 9.5 covers new records; only pre-upload history remains |
 | App-wide page widths | — | Follow-up from 31: wider list/table pages (Pending Work, Changes, Roadmap), forms stay narrow |
 | Cleanup (from 32) | — | Later: drop the compatibility trigger + old `source*` columns once nothing reads them (do on item 34's local copy first) |
-| 9.6 Link documents to visits, parts, specs, modifications, registrations | new · medium | From Joe's 9.2 feedback (10/12) |
+| 9.6 Link documents to visits, parts, specs, modifications, registrations | new · medium | From Joe's 9.2 feedback (10/12). Also: link a manual to the modification it covers (Sniper manual → R2's Sniper EFI), noted from 9.7 |
+| 9.7 Reference library | ready_for_review · medium | **Built and live-tested 10/25:** Documents tab on each vehicle (manuals & references, then records), filters on the Documents page, manuals that also cover other vehicles or are General (all vehicles), shown to the mechanic. Table `document_vehicles` |
 | 33 Major dependency upgrades (React Router 7, Tailwind 4, Vite 8, vite-plugin-pwa 2) | new · medium | Remaining npm-audit work; React Router first (runtime). See Housekeeping |
 | **34** Local Supabase dev environment in Docker (+ learning path) | new · medium | Not needed for 29's phases 1a/1b/2 (AI saves only to add-only knowledge tables; pending work goes through the normal form). Needed before any in-chat operational actions. Joe installs Docker Desktop + WSL2; then baseline (live has no migration history, and migration file versions collide — fix before any `db push`), seed data, local/live switching, local function testing, written workflow + tutorial |
 

@@ -9,6 +9,8 @@
  *   • Re-parse with AI → navigate to add-visit pre-populated
  *   • See all service visits that were created from this document
  *   • Delete document (removes DB record + storage file)
+ *   • 9.7: the vehicle it's filed under (or General) and, for manuals and
+ *     references, the other vehicles it also covers
  */
 
 import { useState } from 'react'
@@ -16,6 +18,9 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { supabase } from '@/lib/supabase'
+import { useVehicleChoices } from '@/lib/mechanic'
+import { REFERENCE_TYPES, FILED_UNDER, setAlsoCovers, invalidateDocuments } from '@/lib/documents'
+import AlsoCoversPicker from '@/components/AlsoCoversPicker'
 import DeleteOrRequest from '@/components/DeleteOrRequest'
 import { format, parseISO } from 'date-fns'
 import { ArrowLeft, Download, Sparkles, Trash2, Save, ExternalLink } from 'lucide-react'
@@ -35,6 +40,8 @@ export default function DocumentDetail() {
   const [analyzing,  setAnalyzing]  = useState(false)
   const [analyzeErr, setAnalyzeErr] = useState('')
   const [editMode,   setEditMode]   = useState(false)
+  const [alsoCovers, setAlsoCoversIds] = useState([])
+  const { data: vehicles = [] } = useVehicleChoices()
 
   // ── Load document ─────────────────────────────────────────────────────────
   const { data: doc, isLoading } = useQuery({
@@ -42,13 +49,14 @@ export default function DocumentDetail() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('documents')
-        .select('*, vehicles(id, name, year, make, model)')
+        .select(`*, ${FILED_UNDER}(id, name, year, make, model), document_vehicles(vehicle_id, vehicles(name))`)
         .eq('id', docId)
         .single()
       if (error) throw error
       return data
     },
   })
+  const coveredIds = (doc?.document_vehicles ?? []).map(l => l.vehicle_id)
 
   // ── Load linked service visits ────────────────────────────────────────────
   const { data: linkedVisits = [] } = useQuery({
@@ -70,7 +78,10 @@ export default function DocumentDetail() {
   })
 
   // ── Edit form ─────────────────────────────────────────────────────────────
-  const { register, handleSubmit, reset } = useForm()
+  const { register, handleSubmit, reset, watch } = useForm()
+  const editType    = watch('document_type')
+  const editVehicle = watch('vehicle_id')
+  const editIsRef   = REFERENCE_TYPES.has(editType)
 
   function startEdit() {
     reset({
@@ -78,12 +89,16 @@ export default function DocumentDetail() {
       document_type: doc.document_type || 'other',
       document_date: doc.document_date || '',
       description:   doc.description  || '',
+      vehicle_id:    doc.vehicle_id    || '',   // '' = General (all vehicles)
     })
+    setAlsoCoversIds(coveredIds)
     setEditMode(true)
   }
 
   const saveMutation = useMutation({
     mutationFn: async (values) => {
+      const isRef = REFERENCE_TYPES.has(values.document_type)
+      if (!values.vehicle_id && !isRef) throw new Error('Receipts and records need a vehicle; only manuals and references can be General.')
       const { error } = await supabase
         .from('documents')
         .update({
@@ -91,13 +106,16 @@ export default function DocumentDetail() {
           document_type: values.document_type || null,
           document_date: values.document_date || null,
           description:   values.description  || null,
+          vehicle_id:    values.vehicle_id    || null,
         })
         .eq('id', docId)
       if (error) throw error
+      // Only a vehicle-filed reference covers others; General already covers every vehicle
+      const keep = isRef && values.vehicle_id ? alsoCovers.filter(v => v !== values.vehicle_id) : []
+      await setAlsoCovers(docId, keep, coveredIds)
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['document', docId] })
-      qc.invalidateQueries({ queryKey: ['documents_all'] })
+      invalidateDocuments(qc, docId)
       setEditMode(false)
     },
   })
@@ -113,7 +131,7 @@ export default function DocumentDetail() {
       if (error) throw error
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['documents_all'] })
+      invalidateDocuments(qc)
       navigate('/documents')
     },
   })
@@ -179,13 +197,13 @@ export default function DocumentDetail() {
     <div>
       {/* Header */}
       <div className="bg-primary-900 text-white px-4 py-4">
-        <button onClick={() => navigate('/documents')}
+        <button onClick={() => navigate(-1)}
           className="flex items-center gap-1 text-primary-300 text-sm mb-3 hover:text-white">
-          <ArrowLeft size={14} /> Documents
+          <ArrowLeft size={14} /> Back
         </button>
         <h1 className="text-lg font-bold truncate">{doc.filename}</h1>
         <p className="text-primary-300 text-xs mt-0.5">
-          {doc.vehicles?.name}
+          {doc.vehicle_id ? doc.vehicles?.name : 'General (all vehicles)'}
           {doc.document_date ? ` · ${format(parseISO(doc.document_date), 'MMM d, yyyy')}` : ''}
         </p>
       </div>
@@ -269,6 +287,18 @@ export default function DocumentDetail() {
             </div>
 
             <div>
+              <label className="field-label">Filed under</label>
+              <select className="field-select" {...register('vehicle_id')}>
+                {vehicles.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                {(editIsRef || !editVehicle) && <option value="">General (all vehicles)</option>}
+              </select>
+            </div>
+            {editIsRef && editVehicle && (
+              <AlsoCoversPicker vehicles={vehicles} filedUnder={editVehicle}
+                value={alsoCovers} onChange={setAlsoCoversIds} />
+            )}
+
+            <div>
               <label className="field-label">Description</label>
               <textarea className="field-textarea" rows={3} {...register('description')} />
             </div>
@@ -282,14 +312,17 @@ export default function DocumentDetail() {
                 Cancel
               </button>
             </div>
+            {saveMutation.isError && <p className="text-sm text-red-600">{saveMutation.error?.message}</p>}
           </form>
         ) : (
           <div className="card space-y-2">
             <h2 className="card-header">Document Info</h2>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
               <div>
-                <dt className="text-xs text-slate-400">Vehicle</dt>
-                <dd className="font-medium text-slate-700">{doc.vehicles?.name || '—'}</dd>
+                <dt className="text-xs text-slate-400">Filed under</dt>
+                <dd className="font-medium text-slate-700">
+                  {doc.vehicle_id ? (doc.vehicles?.name || '—') : 'General (all vehicles)'}
+                </dd>
               </div>
               <div>
                 <dt className="text-xs text-slate-400">Type</dt>
@@ -305,6 +338,14 @@ export default function DocumentDetail() {
                 <dt className="text-xs text-slate-400">File Type</dt>
                 <dd className="font-medium text-slate-700">{doc.mime_type || '—'}</dd>
               </div>
+              {coveredIds.length > 0 && (
+                <div className="col-span-2">
+                  <dt className="text-xs text-slate-400">Also covers</dt>
+                  <dd className="font-medium text-slate-700">
+                    {doc.document_vehicles.map(l => l.vehicles?.name).filter(Boolean).join(', ')}
+                  </dd>
+                </div>
+              )}
               {doc.description && (
                 <div className="col-span-2">
                   <dt className="text-xs text-slate-400">Description</dt>

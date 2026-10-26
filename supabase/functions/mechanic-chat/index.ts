@@ -737,12 +737,26 @@ async function searchRecords(db: any, query: string, vehicleId: string) {
 // ── What the model knows about the fleet ─────────────────────────────────────
 
 async function fleetList(db: any) {
-  const { data, error } = await db.from("vehicles")
-    .select("id, name, year, make, model, trim, engine_size, status").order("name")
-  if (error) throw new Error(error.message)
-  return (data ?? []).map((v: any) =>
-    `- ${v.name} (id ${v.id}): ${[v.year, v.make, v.model, v.trim, v.engine_size].filter(Boolean).join(" ")} · ${v.status}`,
-  ).join("\n")
+  const [vehicles, general] = await Promise.all([
+    db.from("vehicles").select("id, name, year, make, model, trim, engine_size, status").order("name"),
+    // 9.7: General documents (no vehicle) cover every vehicle, so every chat sees them here
+    db.from("documents").select("id, document_type, document_date, description, filename, mime_type").is("vehicle_id", null),
+  ])
+  for (const r of [vehicles, general]) if (r.error) throw new Error(r.error.message)
+  const lines = (vehicles.data ?? []).map((v: any) =>
+    `- ${v.name} (id ${v.id}): ${[v.year, v.make, v.model, v.trim, v.engine_size].filter(Boolean).join(" ")} · ${v.status}`)
+  if (general.data?.length) {
+    lines.push("General manuals and references, for any vehicle (open with read_document):",
+      ...general.data.map((d: any) => `- ${docLine(d)}`))
+  }
+  return lines.join("\n")
+}
+
+const REFERENCE_TYPES = ["manual", "other"]   // keep in step with src/lib/documents.js
+
+function docLine(d: any) {
+  return `id ${d.id} · ${d.document_type} · ${d.document_date ?? "no date"} · ${d.description || d.filename} (${d.mime_type ?? "?"})` +
+    (d.filedUnder ? ` · shared, filed under ${d.filedUnder}` : "")
 }
 
 async function vehicleRecord(db: any, id: string): Promise<string> {
@@ -771,9 +785,12 @@ async function vehicleRecord(db: any, id: string): Promise<string> {
       .eq("vehicle_id", id).order("document_date", { ascending: false }),
     db.from("guides").select("id, title, job_type, version, verified_at, guide_runs(started_at, status, outcome)")
       .eq("vehicle_id", id).order("title"),
+    // 9.7: reference documents filed under another vehicle that also cover this one
+    db.from("documents").select("id, document_type, document_date, description, filename, mime_type, vehicles!documents_vehicle_id_fkey(name), document_vehicles!inner(vehicle_id)")
+      .eq("document_vehicles.vehicle_id", id),
   ])
   for (const r of q) if (r.error) throw new Error(r.error.message)
-  const [v, mi, visits, loose, pending, maint, insp, reg, specs, notes, mods, dtcs, docs, guides] = q.map((r: any) => r.data)
+  const [v, mi, visits, loose, pending, maint, insp, reg, specs, notes, mods, dtcs, ownDocs, guides, sharedDocs] = q.map((r: any) => r.data)
   if (!v) return ""
 
   const L: string[] = [`<vehicle_record id="${v.id}">`]
@@ -808,8 +825,9 @@ async function vehicleRecord(db: any, id: string): Promise<string> {
     ...(loose ?? []).map((r: any) => `${r.service_date ?? "no date"} ${recordLine(r)}`),
   ]
   section(L, "Service history (newest first)", history, (h: string) => h)
-  section(L, "Documents (open with read_document)", docs, (d: any) =>
-    `id ${d.id} · ${d.document_type} · ${d.document_date ?? "no date"} · ${d.description || d.filename} (${d.mime_type ?? "?"})`)
+  const docs = [...(ownDocs ?? []), ...(sharedDocs ?? []).map((d: any) => ({ ...d, filedUnder: d.vehicles?.name ?? "another vehicle" }))]
+  section(L, "Manuals and references (open with read_document)", docs.filter((d: any) => REFERENCE_TYPES.includes(d.document_type)), docLine)
+  section(L, "Receipts and records (open with read_document)", docs.filter((d: any) => !REFERENCE_TYPES.includes(d.document_type)), docLine)
   section(L, "Saved guides (open with read_guide)", guides, (g: any) => {
     const runs = (g.guide_runs ?? []).sort((a: any, b: any) => (b.started_at ?? "").localeCompare(a.started_at ?? ""))
     const lastRun = runs[0] ? ` · last run ${runs[0].started_at.slice(0, 10)} (${runs[0].status}${runs[0].outcome ? `, ${runs[0].outcome.replace("_", " ")}` : ""})` : ""
